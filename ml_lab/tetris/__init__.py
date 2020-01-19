@@ -524,7 +524,8 @@ class StepResult(NamedTuple):
 
 
 class Environment:
-    btb_flag = False
+    will_get_btb = False
+    can_hold = False
 
     def reset(self) -> State:
         playfield = Grid.by_size((10, 40))
@@ -581,24 +582,27 @@ class Environment:
                     elif num_cleared_lines == 0:
                         s.stats.tsz += 1
                 if num_cleared_lines == 4 or tspin is not None:
-                    if self.btb_flag:
+                    if self.will_get_btb:
                         s.stats.btb += 1
                         s.stats.max_btb = max(s.stats.btb, s.stats.max_btb)
                     else:
-                        self.btb_flag = True
+                        self.will_get_btb = True
             else:
                 s.stats.combos = 0
                 s.stats.btb = 0
-                self.btb_flag = False
+                self.will_get_btb = False
             fp = FallingPiece.spawn(s.next_pieces.pop(), s.playfield)
+            self.can_hold = True
         elif action.drop_hold is DropHoldAction.HOLD:
-            if s.hold_piece is None:
-                pass
+            if self.can_hold:
+                if s.hold_piece is not None:
+                    fp = FallingPiece.spawn(s.hold_piece, s.playfield)
+                s.hold_piece = fp.piece
+                self.can_hold = False
 
         s.falling_piece = fp
         s.is_game_over = not s.playfield.can_put(fp.pos, fp.grid())
 
-        result = StepResult(num_cleared_lines, tspin,
-                            s.stats.combos > 0, s.stats.btb > 0,
-                            s.is_game_over)
+        result = StepResult(num_cleared_lines, tspin, s.stats.combos,
+                            s.stats.btb > 0, s.is_game_over)
         return copy.deepcopy(s), result, s.is_game_over
