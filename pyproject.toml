@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "ml-lab"
+version = "0.1.0"
+description = ""
+authors = ["Shintaro Seki <s2pch.luck@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+tensorflow = "2.1.0-rc2"
+gym = "^0.15.4"
+yellowbrick = "^1.0.1"
+torch = "^1.3.1"
+torchvision = "^0.4.2"
+pillow = "6.2.2"
+scikit-learn = "^0.22.1"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
