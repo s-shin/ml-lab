@@ -96,9 +96,8 @@ class TestEnvironment(unittest.TestCase):
     def test_basic(self):
         env = tetris.Environment()
         env.reset()
-        for _ in range(60):
-            state, result, done = \
-                env.step(tetris.Action.random(shift_range=(-4, 4)))
+        for _ in range(100):
+            state, result, done = env.step(tetris.Action.random())
         # print(state)
         # print(result)
         # print(done)

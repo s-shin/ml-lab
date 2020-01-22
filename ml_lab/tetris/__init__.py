@@ -3,6 +3,7 @@ from enum import IntEnum
 import numpy as np
 import random
 import copy
+import operator
 from typing import Optional, NamedTuple, Tuple
 
 Vector2 = Tuple[int, int]
@@ -279,15 +280,15 @@ class FallingPiece:
             dy += 1
         return dy - 1
 
-    def drop(self, playfield: Grid, limit=-1) -> bool:
+    def drop(self, playfield: Grid, limit=-1) -> int:
         # TODO: optimize more
         dy = self.droppable(playfield)
         if dy < 0:
-            return False
+            return dy
         if limit > 0:
             dy = min(dy, limit)
         self.pos = (self.pos[0], self.pos[1] - dy)
-        return True
+        return dy
 
     def shift(self, playfield: Grid, n: int) -> int:
         if n == 0:
@@ -389,58 +390,18 @@ class NextPieces:
         return str(self)
 
 
-class RotateAction:
-    def __init__(self, cw=True, rotation=Rotation.DEG_0):
-        self.cw = cw
-        self.rotation = rotation
+class Action(IntEnum):
+    CW = 0
+    CCW = 1
+    LEFT_SHIFT = 2
+    RIGHT_SHIFT = 3
+    FIRM_DROP = 4
+    HARD_DROP = 5
+    HOLD = 6
 
     @classmethod
     def random(cls):
-        return cls(random.choice([True, False]), Rotation.random())
-
-
-class ShiftAction:
-    MIN = -9
-    MAX = 9
-
-    def __init__(self, n=0):
-        self.n = n
-
-    def is_shifted_to_right(self):
-        return self.n >= 0
-
-    def is_shifted_to_left(self):
-        return self.n < 0
-
-    @classmethod
-    def random(cls, range=(-9, 9)):
-        return cls(random.randint(*range))
-
-
-class DropHoldAction(IntEnum):
-    FIRM_DROP = 0
-    HARD_DROP = 1
-    HOLD = 2
-
-    @classmethod
-    def random(cls):
-        return cls(random.randint(0, 2))
-
-
-class Action:
-    def __init__(self, rotate=RotateAction(), shift=ShiftAction(),
-                 drop_hold=DropHoldAction.FIRM_DROP):
-        self.rotate = rotate
-        self.shift = shift
-        self.drop_hold = drop_hold
-
-    @classmethod
-    def random(cls, shift_range=(ShiftAction.MIN, ShiftAction.MAX)):
-        return cls(
-            RotateAction.random(),
-            ShiftAction.random(range=shift_range),
-            DropHoldAction.random(),
-        )
+        return cls(random.randint(0, 6))
 
 
 class Statistics:
@@ -455,6 +416,23 @@ class Statistics:
     tsz = 0
     btb = 0
     max_btb = 0
+    dropped_lines = 0
+
+    def to_tuple(self):
+        return (self.lines, self.tetris, self.combos, self.max_combos,
+                self.tst, self.tsd, self.tss, self.tsm, self.tsz, self.btb,
+                self.max_btb, self.dropped_lines)
+
+    @classmethod
+    def from_tuple(cls, t):
+        s = cls()
+        (s.lines, s.tetris, s.combos, s.max_combos, s.tst, s.tsd,
+         s.tss, s.tsm, s.tsz, s.btb, s.max_btb, s.dropped_lines) = t
+        return s
+
+    def __sub__(self, rhs: 'Statistics'):
+        return Statistics.from_tuple(
+            map(operator.sub, self.to_tuple(), rhs.to_tuple()))
 
 
 class State:
@@ -510,8 +488,9 @@ class StepResult(NamedTuple):
     num_cleared_lines: int = 0
     tspin: Optional[TSpinType] = None
     num_combos: int = 0
-    btb: bool = False
-    game_over: bool = False
+    is_btb: bool = False
+    is_game_over: bool = False
+    stats_diff: Statistics = Statistics()
 
     def is_tetris(self):
         return self.num_cleared_lines == 4
@@ -537,29 +516,31 @@ class Environment:
 
     def step(self, action: Action) -> Tuple[State, StepResult, bool]:
         s = self.state
+        prev_stats = copy.deepcopy(s.stats)
 
         if s.is_game_over:
             return copy.deepcopy(s), StepResult(), True
 
         fp = s.falling_piece
-
-        # Rotate
-        for _ in range(action.rotate.rotation):
-            if not fp.rotate(s.playfield, action.rotate.cw):
-                break
-
-        # Shift
-        fp.shift(s.playfield, action.shift.n)
-
-        # Drop/Hold
         num_cleared_lines = 0
         tspin = None
 
-        if action.drop_hold is DropHoldAction.FIRM_DROP:
-            r = fp.drop(s.playfield)
-            assert r
-        elif action.drop_hold is DropHoldAction.HARD_DROP:
-            fp.drop(s.playfield)
+        if action is Action.CW:
+            fp.rotate(s.playfield, True)
+        elif action is Action.CCW:
+            fp.rotate(s.playfield, False)
+        elif action is Action.RIGHT_SHIFT:
+            fp.shift(s.playfield, 1)
+        elif action is Action.LEFT_SHIFT:
+            fp.shift(s.playfield, -1)
+        elif action is Action.FIRM_DROP:
+            n = fp.drop(s.playfield)
+            if n > 0:
+                s.stats.dropped_lines += n
+        elif action is Action.HARD_DROP:
+            n = fp.drop(s.playfield)
+            if n > 0:
+                s.stats.dropped_lines += n
             r = fp.lock(s.playfield)
             assert r is not None
             (num_cleared_lines, tspin) = r
@@ -593,7 +574,7 @@ class Environment:
                 self.will_get_btb = False
             fp = FallingPiece.spawn(s.next_pieces.pop(), s.playfield)
             self.can_hold = True
-        elif action.drop_hold is DropHoldAction.HOLD:
+        elif action is Action.HOLD:
             if self.can_hold:
                 if s.hold_piece is not None:
                     fp = FallingPiece.spawn(s.hold_piece, s.playfield)
@@ -604,5 +585,6 @@ class Environment:
         s.is_game_over = not s.playfield.can_put(fp.pos, fp.grid())
 
         result = StepResult(num_cleared_lines, tspin, s.stats.combos,
-                            s.stats.btb > 0, s.is_game_over)
+                            self.will_get_btb, s.is_game_over,
+                            s.stats - prev_stats)
         return copy.deepcopy(s), result, s.is_game_over
