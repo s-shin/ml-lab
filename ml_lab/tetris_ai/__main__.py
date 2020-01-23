@@ -102,15 +102,13 @@ class EnvWrapper:
 
     def reset(self):
         s = self.env.reset()
+        self.num_steps = 0
         self.state_tensor = state_to_tensor(s, self.device)
         self.total_rewards = 0
 
     def step(self, action: Action):
+        self.num_steps += 1
         state, result, done = self.env.step(action)
-        if done:
-            state_tensor = None
-        else:
-            state_tensor = state_to_tensor(state, self.device)
         reward = 0
         if result.stats_diff.dropped_lines > 0:
             reward += 1
@@ -126,6 +124,12 @@ class EnvWrapper:
         else:
             reward += result.num_cleared_lines
         self.total_rewards += reward
+        if not done and self.num_steps > 100:
+            done = self.total_rewards / self.num_steps < 0.1
+        if done:
+            state_tensor = None
+        else:
+            state_tensor = state_to_tensor(state, self.device)
         t = Transition(self.state_tensor,
                        action_to_tensor(action, self.device),
                        state_tensor, torch.tensor([reward], device=self.device))
@@ -270,11 +274,12 @@ def learn(env: EnvWrapper, model, optimizer, device, writer: SummaryWriter,
             if t.is_end():
                 break
 
-        print('{} ({})'.format(step_id + 1, env.total_rewards))
-        writer.add_scalar('Episode/Steps', step_id + 1, episode_id)
+        print('{} ({})'.format(env.num_steps, env.total_rewards))
+        steps.append(env.num_steps)
+        writer.add_scalar('Episode/Steps', env.num_steps, episode_id)
         writer.add_scalar('Episode/Rewards', env.total_rewards, episode_id)
 
-        if step_id + 1 >= max_steps:
+        if env.num_steps >= max_steps:
             success_counter += 1
         else:
             success_counter = 0
