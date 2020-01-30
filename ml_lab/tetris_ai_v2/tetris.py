@@ -1,9 +1,11 @@
 from collections import deque
 from enum import IntEnum
-import numpy as np
+import copy
 import random
 import operator
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, NamedTuple
+import numpy as np
+from bitarray import bitarray
 
 Vector2 = Tuple[int, int]
 
@@ -52,6 +54,7 @@ class Grid:
     def by_size(cls, size: Vector2):
         g = cls()
         g.cells = np.zeros((size[1], size[0]), dtype='B')
+        g.__sync()
         return g
 
     @classmethod
@@ -60,10 +63,20 @@ class Grid:
         g.cells = np.array(cells, dtype='B')
         if reverse_rows:
             g.cells = np.flipud(g.cells)
+        g.__sync()
         return g
+
+    def __init__(self):
+        self.bit_cells = bitarray()
 
     def __eq__(self, rhs):
         return np.array_equal(self.cells, rhs.cells)
+
+    def __sync(self):
+        self.bit_cells.pack(self.cells.tostring())
+
+    def __crop_bit_cells(self, pos: Vector2, size: Vector2):
+        raise NotImplementedError('TODO')
 
     def width(self):
         return self.cells.shape[1]
@@ -175,7 +188,7 @@ class Grid:
 
 def gen_grids(cells_cw0_list):
     cells = np.flipud(np.array(cells_cw0_list, dtype='B'))
-    return [Grid.by_cells(np.rot90(cells, -r)) for r in range(4)]
+    return [Grid.by_cells(np.rot90(cells, r)) for r in range(4)]
 
 
 PIECE_GRIDS = [
@@ -301,17 +314,45 @@ class TSpinType(IntEnum):
     MINI = 1
 
 
-class Playfield:
+class Playfield(NamedTuple):
     grid: Grid
     visible_height: int
-
-    def __init__(self, grid: Grid, visible_height: int):
-        self.grid = grid
-        self.visible_height = visible_height
 
     @classmethod
     def default(cls) -> 'Playfield':
         return cls(Grid.by_size((10, 40)), 20)
+
+
+class MoveType(IntEnum):
+    HORIZONTAL = 0
+    VERTICAL = 1
+    ROTATION = 2
+
+
+class Move(NamedTuple):
+    type: MoveType
+    n: int
+
+
+class MovePath(NamedTuple):
+    path: List[Move] = []
+
+    def join(self, p: 'MovePath'):
+        if len(self.path) == 0:
+            return p
+        if len(p.path) == 0:
+            return self
+        m1 = self.path[-1]
+        m2 = p.path[0]
+        # NOTE: Rotations cannot be merged.
+        if m1.type != m2.type or m1.type == MoveType.ROTATION:
+            return MovePath(self.path + p.path)
+        if m1.n + m2.n == 0:
+            # canceled
+            return MovePath(self.path[:-1] + p.path[1:])
+        # merge
+        return MovePath(
+            self.path[:-1] + [Move(m1.type, m1.n + m2.n)] + p.path[1:])
 
 
 class FallingPiece:
@@ -332,29 +373,58 @@ class FallingPiece:
             pos = (pos[0], pos[1] + 1)
         return cls(piece, Rotation.DEG_0, pos)
 
+    def clone(self) -> 'FallingPiece':
+        return copy.deepcopy(self)
+
+    def move(self, dx=0, dy=0) -> 'FallingPiece':
+        self.pos = (self.pos[0] + dx, self.pos[1] + dy)
+        return self
+
     def __str__(self):
         return '<FallingPiece {} {} ({}, {})>'.format(
             self.piece, self.rotation, self.pos[0], self.pos[1])
 
+    def __hash__(self):
+        return hash((self.piece, self.rotation, self.pos))
+
+    def __eq__(self, rhs: 'FallingPiece'):
+        return self.__dict__ == rhs.__dict__
+
     def grid(self):
         return self.piece.grid(self.rotation)
 
-    def droppable(self, pf: Playfield) -> int:
-        # TODO: optimize more
+    def can_put_onto(self, pf: Playfield) -> bool:
+        return pf.grid.can_put(self.pos, self.grid())
+
+    def droppable(self, pf: Playfield, n=-1) -> int:
+        # NOTE: maybe can optimize more
         g = self.grid()
-        dy = 0
-        while pf.grid.can_put((self.pos[0], self.pos[1]-dy), g):
-            dy += 1
-        return dy - 1
+        for i in range(1, n + 2 if n > 0 else pf.grid.height()):
+            y = self.pos[1] - i
+            if not pf.grid.can_put((self.pos[0], y), g):
+                break
+        return i - 1
 
     def drop(self, pf: Playfield, limit=-1) -> int:
-        # TODO: optimize more
-        dy = self.droppable(pf)
+        dy = self.droppable(pf, limit)
         if dy < 0:
             return dy
-        if limit > 0:
-            dy = min(dy, limit)
         self.pos = (self.pos[0], self.pos[1] - dy)
+        return dy
+
+    def liftable(self, pf: Playfield, n=-1) -> int:
+        g = self.grid()
+        for i in range(1, n + 2 if n > 0 else pf.grid.height()):
+            y = self.pos[1] + i
+            if not pf.grid.can_put((self.pos[0], y), g):
+                break
+        return i - 1
+
+    def lift(self, pf: Playfield, limit=-1) -> int:
+        dy = self.liftable(pf, limit)
+        if dy < 0:
+            return dy
+        self.pos = (self.pos[0], self.pos[1] + dy)
         return dy
 
     def shift(self, pf: Playfield, n: int) -> int:
@@ -405,7 +475,8 @@ class FallingPiece:
             return TSpinType.NORMAL
         return None
 
-    def rotate(self, pf: Playfield, cw: bool) -> Optional['FallingPiece']:
+    def rotate(self, pf: Playfield, cw: bool) -> bool:
+        '''SRS by true rotation method'''
         current_cw = self.rotation
         next_cw = self.rotation.rotate(1 if cw else -1)
         next_grid = self.piece.grid(next_cw)
@@ -422,20 +493,74 @@ class FallingPiece:
             return True
         return False
 
-    def has_ceiling(self, pf: Playfield, limit=None) -> bool:
-        grid = self.grid()
-        if limit is None:
-            limit = pf.visible_height - self.pos[1]
-        for y in range(self.pos[1], self.pos[1] + limit):
-            start = self.pos[0] + grid.left_padding()
-            stop = self.pos[0] + grid.width() - grid.right_padding()
-            for x in range(start, stop):
-                if not pf.grid.get_cell((x, y)).is_empty():
-                    return True
-        return False
+    def search_move_path(self, pf: Playfield, dst: Vector2, rotation: Rotation,
+                         trace=False) -> Optional[MovePath]:
+        '''
+        Currently, by brute-force search.
+        Thus, the performance is not good and sometimes non best path will be
+        returned.
+        '''
+        checked = set()
 
-    def escape_from(self, pf: Playfield):
-        pass
+        def trace_print(depth, s):
+            if trace:
+                print('{}{}'.format(' ' * depth * 2, s))
+
+        def search(fp, depth=0) -> Optional[MovePath]:
+            nonlocal checked
+            trace_print(depth, 'fp = {}'.format(fp))
+
+            if fp in checked:
+                trace_print(depth, '=> checked')
+                return None
+            checked.add(fp)
+
+            # assert fp.can_put_onto(pf)
+
+            if fp.pos == dst:
+                trace_print(depth, '=> achieved!')
+                return MovePath()
+
+            # TODO: should be able to control search priorities by option?
+
+            trace_print(depth, '| y - 1')
+            next_fp = fp.clone().move(dy=-1)
+            if next_fp.can_put_onto(pf):
+                p = search(next_fp, depth + 1)
+                if p is not None:
+                    return MovePath([Move(MoveType.VERTICAL, -1)]).join(p)
+
+            trace_print(depth, '| x + 1')
+            next_fp = fp.clone().move(dx=1)
+            if next_fp.can_put_onto(pf):
+                p = search(next_fp, depth + 1)
+                if p is not None:
+                    return MovePath([Move(MoveType.HORIZONTAL, 1)]).join(p)
+
+            trace_print(depth, '| x - 1')
+            next_fp = fp.clone().move(dx=-1)
+            if next_fp.can_put_onto(pf):
+                p = search(next_fp, depth + 1)
+                if p is not None:
+                    return MovePath([Move(MoveType.HORIZONTAL, -1)]).join(p)
+
+            trace_print(depth, '| cw')
+            next_fp = fp.clone()
+            if next_fp.rotate(pf, True):
+                p = search(next_fp, depth+1)
+                if p is not None:
+                    return MovePath([Move(MoveType.ROTATION, 1)]).join(p)
+
+            trace_print(depth, '| ccw')
+            next_fp = fp.clone()
+            if next_fp.rotate(pf, False):
+                p = search(next_fp, depth+1)
+                if p is not None:
+                    return MovePath([Move(MoveType.ROTATION, -1)]).join(p)
+
+            return None
+
+        return search(self)
 
     def search_droppable(self, pf: Playfield) -> List[Vector2]:
         candidates = []
@@ -448,9 +573,12 @@ class FallingPiece:
                         continue
                     if pf.grid.can_put(fp.pos, fp.grid()):
                         candidates.append(fp)
+        r = []
         for fp in candidates:
-            pass
-        return candidates
+            path = self.search_move_path(pf, fp.pos, fp.rotation)
+            if path is not None:
+                r.append((fp, path))
+        return r
 
 
 class NextPieces:

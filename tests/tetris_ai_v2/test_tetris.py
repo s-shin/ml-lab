@@ -98,17 +98,40 @@ class TestFallingPiece(unittest.TestCase):
         self.assertFalse(pf.grid.get_cell((1, 1)).is_empty())
         self.assertFalse(pf.grid.get_cell((2, 0)).is_empty())
 
-    def test_has_ceiling(self):
-        pf, fp = self.pf, self.fp
-        pf.grid.set_cell((1, 3), tetris.Cell.Garbage)
-        fp.pos = (0, 0)
-        self.assertTrue(fp.has_ceiling(pf))
-        fp.pos = (1, 0)
-        self.assertTrue(fp.has_ceiling(pf))
-        fp.pos = (2, 0)
-        self.assertFalse(fp.has_ceiling(pf))
-
     def test_search_droppable(self):
         pf, fp = self.pf, self.fp
-        for t in fp.search_droppable(pf):
-            print(t)
+        r = fp.search_droppable(pf)
+        for dst_fp, path in r:
+            print((dst_fp, path))
+
+    def test_search_path(self):
+        fp = self.fp
+        grid = tetris.Grid.by_cells([
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+            [1, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 1, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 1, 1, 0, 1, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 1, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 1, 1, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+            [1, 1, 0, 1, 1, 1, 0, 0, 0, 0],
+        ], reverse_rows=True)
+        pf = tetris.Playfield(grid, 20)
+        r = fp.search_move_path(
+            pf, (1, 0), tetris.Rotation.DEG_180, trace=False)
+        self.assertIsNotNone(r)
+        # print(r)
