@@ -1,72 +1,90 @@
-from typings import NamedTuple, List
+from logging import getLogger
+import copy
+from typing import NamedTuple, Optional
+import random
+import numpy as np
 import torch
-import ml_lab.tetris_ai_v2.game as tetris
+import ml_lab.tetris_ai_v2.tetris as tetris
+import ml_lab.tetris_ai_v2.mcts as mcts
+import ml_lab.tetris_ai_v2.model as M
+
+logger = getLogger(__name__)
 
 
-State = torch.Tensor
+class MctsValue(NamedTuple):
+    state: tetris.GameState
+    by_fp: Optional[tetris.FallingPiece]
 
 
-def gameToState(game: tetris.Game) -> State:
-    return torch.zeros(1)
+MctsTree = mcts.Tree[tetris.GameState, MctsValue]
+MctsNode = mcts.Node[tetris.GameState, MctsValue]
 
 
-class NodeValue(NamedTuple):
-    state: State
-    n: int = 0
-    q: float = 0
-    w: float = 0
-    p: float = 0
+def simulate(target: MctsNode, model: M.TetrisModel):
+    # Select
+    leaf = target.select()
+    assert leaf.is_leaf()
+
+    # Expand
+    v = leaf.value
+    found = v.state.falling_piece.search_droppable(v.state.playfield)
+    for fp, _ in found:
+        g = tetris.Game(copy.deepcopy(v.state))
+        g.lock(fp)
+        if g.state.is_game_over:
+            continue
+        leaf.append_child(g.state, MctsValue(g.state, fp))
+
+    # Evaluate
+    action_probs, state_value = \
+        model(M.game_state_to_tensor(leaf.value.state).unsqueeze(0))
+    for node in leaf.children:
+        idx = M.fp_to_index(node.value.by_fp)
+        prob = action_probs[idx]
+        node.params.p = prob
+
+    # Backpropagate
+    leaf.backpropagate(state_value)
 
 
-class Node:
-    value: NodeValue
-    children: List['Node'] = []
-    is_root: bool
+def select_action(target: MctsNode, tau: int):
+    pi = np.zeros(len(target.children), dtype=np.float32)
+    action_values = np.zeros(len(target.children), dtype=np.float32)
+    for i, node in enumerate(target.children):
+        pi[i] = node.params.n ** (1 / max(tau, 1))
+        action_values[i] = node.params.q
+    sum = np.sum(pi)
+    if sum > 0:
+        pi /= np.sum(pi)
+    logger.debug('{} {}'.format(sum, np.sum(pi)))
 
-    def __init__(self, puct_c_fn, value=NodeValue(), is_root=False):
-        self.puct_c_fn = puct_c_fn
-        self.value = value
-        self.is_root = is_root
+    if tau == 0:
+        idx = random.choice(np.argwhere(pi == max(pi)))[0]
+    else:
+        idx = np.where(np.random.multinomial(1, pi) == 1)[0][0]
+    action_value = action_values[idx]
+    selected_node = target.children[idx]
 
-    def is_leaf(self) -> bool:
-        return len(self.children) == 0
-
-    def select(self):
-        node = self
-        while not node.is_leaf():
-            c = self.puct_c_fn(self.value)
-            max_idx = ''
-            max_puct = 0
-            for idx, child in enumerate(self.children):
-                puct = child.value.q + \
-                    c * child.value.p * self.value.n**0.5 / (1 + child.value.n)
-                if max_puct < puct:
-                    max_puct = puct
-                    max_idx = idx
-            node = self.children[max_idx]
-        return node
-
-    def append_child(self, value: NodeValue):
-        self.children.append(Node(self.puct_c_fn, value))
+    return selected_node, action_value
 
 
-class Player:
-    mcts: Node
-
-    def __init__(self):
-        self.mcts = Node(lambda v: 1, is_root=True)
-
-    def select_action(self, state):
-        action = None
-        return action
-
-
-class PlayResult:
-    pass
-
-
-def runSinglePlay(player: Player):
+def run_single_play(model: M.TetrisModel, num_simulations=1):
     game = tetris.Game.default()
-
-    while not game.is_game_over:
-        action = player.select_action(gameToState(game))
+    mcts_tree = MctsTree(mcts.TreeConfig(lambda x: 1), game.state,
+                         MctsValue(game.state, None))
+    current_node = mcts_tree.root
+    tau = 10
+    while not game.state.is_game_over:
+        logger.info('simulate %d times', num_simulations)
+        for sim_id in range(num_simulations):
+            logger.info('simulate#%d', sim_id)
+            simulate(current_node, model)
+        if current_node.is_leaf():
+            # game over?
+            break
+        node, action_value = select_action(current_node, tau)
+        game.lock(node.value.by_fp)
+        logger.debug('game:\n%s', game)
+        current_node = node
+        if tau > 0:
+            tau -= 1

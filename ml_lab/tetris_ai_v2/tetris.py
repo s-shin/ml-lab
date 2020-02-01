@@ -50,6 +50,8 @@ class Cell(IntEnum):
 
 
 class Grid:
+    cells: np.ndarray
+
     @classmethod
     def by_size(cls, size: Vector2):
         g = cls()
@@ -71,6 +73,10 @@ class Grid:
 
     def __eq__(self, rhs):
         return np.array_equal(self.cells, rhs.cells)
+
+    def __hash__(self):
+        # NOTE: Zobrist hash can be used?
+        return hash(self.cells.tostring())
 
     def __sync(self):
         self.bit_cells.pack(self.cells.tostring())
@@ -144,6 +150,7 @@ class Grid:
 
     def bottom_padding(self) -> int:
         h = self.height()
+        i = -1
         for i in range(h):
             y = i
             if not self.is_row_empty(y):
@@ -152,6 +159,7 @@ class Grid:
 
     def top_padding(self) -> int:
         h = self.height()
+        i = -1
         for i in range(h):
             y = h - i - 1
             if not self.is_row_empty(y):
@@ -160,6 +168,7 @@ class Grid:
 
     def left_padding(self) -> int:
         w = self.width()
+        i = -1
         for i in range(w):
             x = i
             if not self.is_col_empty(x):
@@ -168,6 +177,7 @@ class Grid:
 
     def right_padding(self) -> int:
         w = self.width()
+        i = -1
         for i in range(w):
             x = w - i - 1
             if not self.is_col_empty(x):
@@ -182,7 +192,7 @@ class Grid:
                 n += 1
             elif n > 0:
                 # swap two rows
-                self.cells[[y-n, y]] = self.cells[[y, y-n]]
+                self.cells[[y - n, y]] = self.cells[[y, y - n]]
         return n
 
 
@@ -237,7 +247,6 @@ PIECE_GRIDS = [
         [0, 0, 0],
     ]),
 ]
-
 
 PIECE_INITIAL_POSITIONS = [
     # S
@@ -314,13 +323,18 @@ class TSpinType(IntEnum):
     MINI = 1
 
 
+DEFAULT_PLAYFIELD_SIZE: Vector2 = (10, 40)
+DEFAULT_PLAYFIELD_VISIBLE_HEIGHT: int = 20
+
+
 class Playfield(NamedTuple):
     grid: Grid
     visible_height: int
 
     @classmethod
     def default(cls) -> 'Playfield':
-        return cls(Grid.by_size((10, 40)), 20)
+        return cls(Grid.by_size(DEFAULT_PLAYFIELD_SIZE),
+                   DEFAULT_PLAYFIELD_VISIBLE_HEIGHT)
 
 
 class MoveType(IntEnum):
@@ -384,11 +398,16 @@ class FallingPiece:
         return '<FallingPiece {} {} ({}, {})>'.format(
             self.piece, self.rotation, self.pos[0], self.pos[1])
 
+    def __iter__(self):
+        yield self.piece
+        yield self.rotation
+        yield self.pos
+
     def __hash__(self):
-        return hash((self.piece, self.rotation, self.pos))
+        return hash(tuple(self))
 
     def __eq__(self, rhs: 'FallingPiece'):
-        return self.__dict__ == rhs.__dict__
+        return tuple(self) == tuple(rhs)
 
     def grid(self):
         return self.piece.grid(self.rotation)
@@ -443,7 +462,7 @@ class FallingPiece:
 
     def lock(self, pf: Playfield) \
             -> Optional[Tuple[int, Optional[TSpinType]]]:
-        if self.droppable(pf) > 0:
+        if self.droppable(pf, 1) > 0:
             return None
         g = self.grid()
         if not pf.grid.can_put(self.pos, g):
@@ -476,7 +495,7 @@ class FallingPiece:
         return None
 
     def rotate(self, pf: Playfield, cw: bool) -> bool:
-        '''SRS by true rotation method'''
+        """SRS by true rotation method"""
         current_cw = self.rotation
         next_cw = self.rotation.rotate(1 if cw else -1)
         next_grid = self.piece.grid(next_cw)
@@ -495,11 +514,11 @@ class FallingPiece:
 
     def search_move_path(self, pf: Playfield, dst: Vector2, rotation: Rotation,
                          trace=False) -> Optional[MovePath]:
-        '''
+        """
         Currently, by brute-force search.
         Thus, the performance is not good and sometimes non best path will be
         returned.
-        '''
+        """
         checked = set()
 
         def trace_print(depth, s):
@@ -547,14 +566,14 @@ class FallingPiece:
             trace_print(depth, '| cw')
             next_fp = fp.clone()
             if next_fp.rotate(pf, True):
-                p = search(next_fp, depth+1)
+                p = search(next_fp, depth + 1)
                 if p is not None:
                     return MovePath([Move(MoveType.ROTATION, 1)]).join(p)
 
             trace_print(depth, '| ccw')
             next_fp = fp.clone()
             if next_fp.rotate(pf, False):
-                p = search(next_fp, depth+1)
+                p = search(next_fp, depth + 1)
                 if p is not None:
                     return MovePath([Move(MoveType.ROTATION, -1)]).join(p)
 
@@ -562,7 +581,8 @@ class FallingPiece:
 
         return search(self)
 
-    def search_droppable(self, pf: Playfield) -> List[Vector2]:
+    def search_droppable(self, pf: Playfield) \
+            -> List[Tuple['FallingPiece', MovePath]]:
         candidates = []
         yend = min(pf.grid.height() - pf.grid.top_padding(), pf.visible_height)
         for y in range(-1, yend):
@@ -614,6 +634,48 @@ class NextPieces:
     def __format__(self, format_spec):
         return str(self)
 
+    def __hash__(self):
+        return hash(str(self))
+
+
+class GameState:
+    playfield: Playfield
+    next_pieces: NextPieces
+    falling_piece: FallingPiece
+    hold_piece: Optional[Piece]
+    is_game_over: bool = False
+    can_hold: bool = False
+    is_in_btb: bool = False
+
+    def __init__(self, playfield, next_pieces, falling_piece, hold_piece):
+        self.playfield = playfield
+        self.next_pieces = next_pieces
+        self.falling_piece = falling_piece
+        self.hold_piece = hold_piece
+
+    @classmethod
+    def default(cls):
+        playfield = Playfield.default()
+        next_pieces = NextPieces()
+        falling_piece = FallingPiece.spawn(next_pieces.pop(), playfield)
+        assert falling_piece is not None
+        return cls(playfield, next_pieces, falling_piece, None)
+
+    def __iter__(self):
+        yield self.playfield
+        yield self.next_pieces
+        yield self.falling_piece
+        yield self.hold_piece
+        yield self.is_game_over
+        yield self.can_hold
+        yield self.is_in_btb
+
+    def __hash__(self):
+        return hash(tuple(self))
+
+    def __eq__(self, rhs):
+        return tuple(self) == tuple(rhs)
+
 
 class Statistics:
     lines = 0
@@ -651,26 +713,19 @@ class Statistics:
 
 
 class Game:
+    state: GameState
+    stats: Statistics
+
     @classmethod
     def default(cls):
-        playfield = Playfield.default()
-        next_pieces = NextPieces()
-        falling_piece = FallingPiece.spawn(next_pieces.pop(), playfield)
-        assert falling_piece is not None
-        return cls(playfield, next_pieces, falling_piece, None)
+        return cls(GameState.default())
 
-    def __init__(self, playfield: Playfield, next_pieces: NextPieces,
-                 falling_piece: FallingPiece, hold_piece: Optional[Piece]):
-        self.playfield = playfield
-        self.next_pieces = next_pieces
-        self.falling_piece = falling_piece
-        self.hold_piece = hold_piece
+    def __init__(self, state: GameState):
+        self.state = state
         self.stats = Statistics()
-        self.is_game_over = False
-        self.can_hold = False
-        self.is_in_btb = False
 
     def __str__(self):
+        s = self.state
         stats_lines = []
         stats_lines.append('==============')
         stats_lines.append('TETRIS  COMBOS')
@@ -686,11 +741,11 @@ class Game:
         stats_lines.append('==============')
         lines = []
         lines.append('[{}]      {:5}'.format(
-            self.hold_piece or ' ', self.next_pieces))
+            s.hold_piece or ' ', s.next_pieces))
         lines.append('--+----------+  {}'.format(stats_lines[0]))
-        fp = self.falling_piece
+        fp = s.falling_piece
         fp_grid = fp.grid()
-        for i in range(self.playfield.visible_height):
+        for i in range(s.playfield.visible_height):
             y = 19 - i
             row = []
             for x in range(10):
@@ -698,8 +753,8 @@ class Game:
                 if cell is not None and not cell.is_empty():
                     row.append(str(cell))
                     continue
-                row.append(str(self.playfield.grid.get_cell((x, y))))
-            stats_line = stats_lines[i+1] if i + 1 < len(stats_lines) else ''
+                row.append(str(s.playfield.grid.get_cell((x, y))))
+            stats_line = stats_lines[i + 1] if i + 1 < len(stats_lines) else ''
             lines.append('{:02}|{}|  {}'.format(y, ''.join(row), stats_line))
         lines.append('--+----------+')
         lines.append('##|0123456789|')
@@ -709,24 +764,29 @@ class Game:
         return str(self)
 
     def rotate(self, is_cw):
-        self.falling_piece.rotate(self.playfield, is_cw)
+        self.state.falling_piece.rotate(self.state.playfield, is_cw)
 
     def shift(self, n):
-        self.falling_piece.shift(self.playfield, n)
+        self.state.falling_piece.shift(self.state.playfield, n)
 
     def drop(self, n=-1):
-        n = self.falling_piece.drop(self.playfield, n)
+        n = self.state.falling_piece.drop(self.state.playfield, n)
         if n > 0:
             self.stats.dropped_lines += n
 
-    def hard_drop(self):
-        fp = self.falling_piece
-        playfield = self.playfield
-        stats = self.stats
-        n = fp.drop(playfield)
+    def hard_drop(self) -> Tuple[int, Optional[TSpinType]]:
+        s = self.state
+        n = s.falling_piece.drop(s.playfield)
         if n > 0:
-            stats.dropped_lines += n
-        r = fp.lock(playfield)
+            self.stats.dropped_lines += n
+        self.lock()
+
+    def lock(self, fp: Optional[FallingPiece] = None):
+        s = self.state
+        stats = self.stats
+        if fp is not None:
+            s.falling_piece = fp
+        r = s.falling_piece.lock(s.playfield)
         assert r is not None
         (num_cleared_lines, tspin) = r
         if num_cleared_lines > 0:
@@ -748,27 +808,28 @@ class Game:
                 elif num_cleared_lines == 0:
                     stats.tsz += 1
             if num_cleared_lines == 4 or tspin is not None:
-                if self.is_in_btb:
+                if s.is_in_btb:
                     stats.btb += 1
                     stats.max_btb = max(stats.btb, stats.max_btb)
                 else:
-                    self.is_in_btb = True
+                    s.is_in_btb = True
         else:
             stats.combos = 0
             stats.btb = 0
-            self.is_in_btb = False
-        fp = FallingPiece.spawn(self.next_pieces.pop(), playfield)
-        self.falling_piece = fp
-        self.is_game_over = not playfield.can_put(fp.pos, fp.grid())
-        self.can_hold = True
+            s.is_in_btb = False
+        fp = FallingPiece.spawn(s.next_pieces.pop(), s.playfield)
+        s.falling_piece = fp
+        s.is_game_over = not fp.can_put_onto(s.playfield)
+        s.can_hold = True
         return r  # TODO
 
     def hold(self):
-        if self.can_hold:
-            piece_to_be_held = self.falling_piece.piece
-            self.falling_piece = FallingPiece.spawn(
-                self.next_pieces.pop()
-                if self.hold_piece is None else self.hold_piece,
-                self.playfield)
-            self.hold_piece = piece_to_be_held
-            self.can_hold = False
+        s = self.state
+        if s.can_hold:
+            piece_to_be_held = s.falling_piece.piece
+            s.falling_piece = FallingPiece.spawn(
+                s.next_pieces.pop()
+                if s.hold_piece is None else s.hold_piece,
+                s.playfield)
+            s.hold_piece = piece_to_be_held
+            s.can_hold = False

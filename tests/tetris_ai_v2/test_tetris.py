@@ -52,7 +52,7 @@ class TestGrid(unittest.TestCase):
     def test_drop_filled_rows(self):
         g1 = self.g1
         for y in range(g1.height()):
-            g1.set_cell((0, y), y+1)
+            g1.set_cell((0, y), y + 1)
         for x in range(g1.width()):
             g1.set_cell((x, 1), 1)
             g1.set_cell((x, 3), 1)
@@ -102,7 +102,8 @@ class TestFallingPiece(unittest.TestCase):
         pf, fp = self.pf, self.fp
         r = fp.search_droppable(pf)
         for dst_fp, path in r:
-            print((dst_fp, path))
+            # print((dst_fp, path))
+            pass
 
     def test_search_path(self):
         fp = self.fp
