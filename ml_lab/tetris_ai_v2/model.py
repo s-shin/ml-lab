@@ -7,8 +7,9 @@ import ml_lab.tetris_ai_v2.tetris as tetris
 INPUT_CHANNELS = 7
 PLAYFIELD_SIZE = tetris.DEFAULT_PLAYFIELD_SIZE
 NUM_CELLS = PLAYFIELD_SIZE[0] * PLAYFIELD_SIZE[1]
+NUM_ROTATION_TYPES = 4
+NUM_ACTION_TPES = NUM_CELLS * NUM_ROTATION_TYPES
 NUM_RESIDUAL_LAYERS = 10
-NUM_ROTATION_VARIATIONS = 4
 K = 192
 
 
@@ -59,8 +60,7 @@ class TetrisModel(nn.Module):
         super(TetrisModel, self).__init__()
         self.conv1 = nn.Conv2d(INPUT_CHANNELS, K, kernel_size=3, padding=1)
         self.res_layers = [ResidualLayer() for i in range(NUM_RESIDUAL_LAYERS)]
-        self.action_head = nn.Linear(K * NUM_CELLS,
-                                     NUM_ROTATION_VARIATIONS * NUM_CELLS)
+        self.action_head = nn.Linear(K * NUM_CELLS, NUM_ACTION_TPES)
         self.state_value_head = nn.Linear(K * NUM_CELLS, 1)
 
     def forward(self, x):

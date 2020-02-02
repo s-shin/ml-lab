@@ -1,9 +1,10 @@
 from collections import deque
+import itertools
 from enum import IntEnum
 import copy
 import random
 import operator
-from typing import Optional, Tuple, List, NamedTuple
+from typing import Optional, Tuple, List, NamedTuple, Deque
 import numpy as np
 from bitarray import bitarray
 
@@ -318,6 +319,9 @@ class Piece(IntEnum):
         return str(self)
 
 
+PIECES: Tuple[Piece] = tuple([Piece.from_index(i) for i in range(7)])
+
+
 class TSpinType(IntEnum):
     NORMAL = 0
     MINI = 1
@@ -601,19 +605,30 @@ class FallingPiece:
         return r
 
 
+DEFAULT_NUM_VISIBLE_NEXT_PIECES = 5
+
+
 class NextPieces:
-    def __init__(self, auto_gen=True, visible=5):
+    pieces: Deque[Piece]
+    auto_gen: bool
+    visible_num: int
+    rand: random.Random
+
+    def __init__(self, auto_gen=True,
+                 visible_num=DEFAULT_NUM_VISIBLE_NEXT_PIECES,
+                 rand=random.Random(None)):
         self.pieces = deque()
         self.auto_gen = auto_gen
-        if auto_gen:
+        self.visible_num = visible_num
+        self.rand = rand
+        if self.auto_gen:
             self.generate()
-        self.visible = visible
 
     def generate(self, lt=8):
         if len(self.pieces) >= lt:
             return
         ps = [Piece.from_index(i) for i in range(7)]
-        random.shuffle(ps)
+        self.rand.shuffle(ps)
         self.pieces.extend(ps)
 
     def pop(self) -> Optional[Piece]:
@@ -623,10 +638,14 @@ class NextPieces:
             return None
         return self.pieces.popleft()
 
+    def fix(self):
+        self.pieces = deque(itertools.islice(self.pieces, 0, self.visible_num))
+        self.auto_gen = False
+
     def __str__(self):
         s = ''
         for i, p in enumerate(self.pieces):
-            if i >= self.visible:
+            if i >= self.visible_num:
                 break
             s += str(p)
         return s
@@ -637,11 +656,14 @@ class NextPieces:
     def __hash__(self):
         return hash(str(self))
 
+    def __eq__(self, rhs):
+        return str(self) == str(rhs)
+
 
 class GameState:
     playfield: Playfield
     next_pieces: NextPieces
-    falling_piece: FallingPiece
+    falling_piece: Optional[FallingPiece]
     hold_piece: Optional[Piece]
     is_game_over: bool = False
     can_hold: bool = False
@@ -654,9 +676,9 @@ class GameState:
         self.hold_piece = hold_piece
 
     @classmethod
-    def default(cls):
+    def default(cls, rand: random.Random):
         playfield = Playfield.default()
-        next_pieces = NextPieces()
+        next_pieces = NextPieces(rand=rand)
         falling_piece = FallingPiece.spawn(next_pieces.pop(), playfield)
         assert falling_piece is not None
         return cls(playfield, next_pieces, falling_piece, None)
@@ -717,8 +739,8 @@ class Game:
     stats: Statistics
 
     @classmethod
-    def default(cls):
-        return cls(GameState.default())
+    def default(cls, rand: random.Random):
+        return cls(GameState.default(rand))
 
     def __init__(self, state: GameState):
         self.state = state
@@ -764,17 +786,21 @@ class Game:
         return str(self)
 
     def rotate(self, is_cw):
+        assert self.state.falling_piece is not None
         self.state.falling_piece.rotate(self.state.playfield, is_cw)
 
     def shift(self, n):
+        assert self.state.falling_piece is not None
         self.state.falling_piece.shift(self.state.playfield, n)
 
     def drop(self, n=-1):
+        assert self.state.falling_piece is not None
         n = self.state.falling_piece.drop(self.state.playfield, n)
         if n > 0:
             self.stats.dropped_lines += n
 
     def hard_drop(self) -> Tuple[int, Optional[TSpinType]]:
+        assert self.state.falling_piece is not None
         s = self.state
         n = s.falling_piece.drop(s.playfield)
         if n > 0:
@@ -782,10 +808,14 @@ class Game:
         self.lock()
 
     def lock(self, fp: Optional[FallingPiece] = None):
+        assert self.state.falling_piece is not None
         s = self.state
         stats = self.stats
         if fp is not None:
             s.falling_piece = fp
+        if s.falling_piece.pos[1] >= s.playfield.visible_height:
+            s.is_game_over = True
+            return None
         r = s.falling_piece.lock(s.playfield)
         assert r is not None
         (num_cleared_lines, tspin) = r
@@ -817,13 +847,19 @@ class Game:
             stats.combos = 0
             stats.btb = 0
             s.is_in_btb = False
-        fp = FallingPiece.spawn(s.next_pieces.pop(), s.playfield)
-        s.falling_piece = fp
-        s.is_game_over = not fp.can_put_onto(s.playfield)
+        next = s.next_pieces.pop()
+        if next is None:
+            s.falling_piece = None
+            s.is_game_over = True
+        else:
+            fp = FallingPiece.spawn(next, s.playfield)
+            s.falling_piece = fp
+            s.is_game_over = not fp.can_put_onto(s.playfield)
         s.can_hold = True
-        return r  # TODO
+        return r
 
     def hold(self):
+        assert self.state.falling_piece is not None
         s = self.state
         if s.can_hold:
             piece_to_be_held = s.falling_piece.piece
