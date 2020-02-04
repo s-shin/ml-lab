@@ -8,7 +8,7 @@ INPUT_CHANNELS = 7
 PLAYFIELD_SIZE = tetris.DEFAULT_PLAYFIELD_SIZE
 NUM_CELLS = PLAYFIELD_SIZE[0] * PLAYFIELD_SIZE[1]
 NUM_ROTATION_TYPES = 4
-NUM_ACTION_TPES = NUM_CELLS * NUM_ROTATION_TYPES
+NUM_ACTION_TYPES = NUM_CELLS * NUM_ROTATION_TYPES
 NUM_RESIDUAL_LAYERS = 10
 K = 192
 
@@ -36,7 +36,9 @@ def game_state_to_tensor(s: tetris.GameState) -> torch.Tensor:
 
 
 def fp_to_index(fp: tetris.FallingPiece) -> int:
-    return (fp.pos[0] + 10 * fp.pos[1]) * 4 + fp.rotation
+    x = fp.pos[0] + int(fp.grid().width() * 0.5)
+    y = fp.pos[1] + int(fp.grid().height() * 0.5)
+    return (x + 10 * y) * 4 + fp.rotation
 
 
 class ResidualLayer(nn.Module):
@@ -60,14 +62,15 @@ class TetrisModel(nn.Module):
         super(TetrisModel, self).__init__()
         self.conv1 = nn.Conv2d(INPUT_CHANNELS, K, kernel_size=3, padding=1)
         self.res_layers = [ResidualLayer() for i in range(NUM_RESIDUAL_LAYERS)]
-        self.action_head = nn.Linear(K * NUM_CELLS, NUM_ACTION_TPES)
+        self.action_head = nn.Linear(K * NUM_CELLS, NUM_ACTION_TYPES)
         self.state_value_head = nn.Linear(K * NUM_CELLS, 1)
 
     def forward(self, x):
+        batch_size = x.shape[0]
         x = F.relu(self.conv1(x))
         for layer in self.res_layers:
             x = layer(x)
-        x = x.view(x.size(0), -1)
-        action_probs = F.softmax(self.action_head(x), dim=-1)
-        state_values = self.state_value_head(x)
-        return action_probs[0], state_values[0]
+        x = x.view(batch_size, -1)
+        action_probs_batch = F.softmax(self.action_head(x), dim=-1)
+        state_value_batch = self.state_value_head(x)
+        return action_probs_batch, state_value_batch.squeeze(1)

@@ -1,6 +1,6 @@
 from logging import getLogger
 import copy
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional, Tuple, Callable, Dict
 import random
 import numpy as np
 import torch
@@ -36,8 +36,11 @@ def simulate(target: MctsNode, model: M.TetrisModel):
         leaf.append_child(g.state, MctsValue(g.state, fp))
 
     # Evaluate
-    action_probs, state_value = \
-        model(M.game_state_to_tensor(leaf.value.state).unsqueeze(0))
+    with torch.no_grad():
+        action_probs_batch, state_value_batch = \
+            model(M.game_state_to_tensor(leaf.value.state).unsqueeze(0))
+        action_probs = action_probs_batch[0]
+        state_value = state_value_batch[0]
     for node in leaf.children:
         idx = M.fp_to_index(node.value.by_fp)
         prob = action_probs[idx]
@@ -53,14 +56,15 @@ def select_action(target: MctsNode, tau: int) \
     The indices of `pi` array correspond to the ones of `target.children`.
     """
     assert len(target.children) > 0
-    pi = np.zeros(len(target.children), dtype=np.float32)
-    action_values = np.zeros(len(target.children), dtype=np.float32)
+    pi = np.zeros(len(target.children), dtype=np.float64)
+    action_values = np.zeros(len(target.children), dtype=np.float64)
     for i, node in enumerate(target.children):
         pi[i] = node.params.n ** (1 / max(tau, 1))
         action_values[i] = node.params.q
     sum = np.sum(pi)
     if sum > 0:
         pi /= sum
+    logger.debug('sum(pi): {}, pi: {}'.format(np.sum(pi), pi))
 
     if tau == 0:
         idx = random.choice(np.argwhere(pi == max(pi)))[0]
@@ -72,19 +76,48 @@ def select_action(target: MctsNode, tau: int) \
     return selected_node, action_value, pi
 
 
-def run_single_play(model: M.TetrisModel, max_steps=100, num_simulations=1):
-    rand = random.Random(0)
+class StepResult:
+    state: tetris.GameState
+    dst: tetris.FallingPiece
+    action_value: float
+    pi: Dict[tetris.FallingPiece, float]
+    reward: int
+
+    def __init__(self, state: tetris.GameState, dst: tetris.FallingPiece,
+                 action_value: float, pi: Dict[tetris.FallingPiece, float],
+                 reward: int = 0):
+        self.state = state
+        self.dst = dst
+        self.action_value = action_value
+        self.pi = pi
+        self.reward = reward
+
+
+StepResultCallback = Callable[[int, StepResult], bool]
+
+
+class PlayResult(NamedTuple):
+    is_game_over: bool
+    score: int
+
+
+def run_single_play(model: M.TetrisModel, num_simulations=1,
+                    step_result_cb: StepResultCallback = lambda i, r: True) \
+        -> PlayResult:
+    rand = random.Random()
     game = tetris.Game.default(rand)
     mcts_tree = MctsTree(mcts.TreeConfig(lambda x: 1), game.state,
                          MctsValue(game.state, None))
     current_node = mcts_tree.root
     tau = 10
-    for step_id in range(max_steps):
+    step_id = 0
+    score = 0
+    while True:
         logger.info('step#{}'.format(step_id))
         logger.debug('game:\n{}'.format(game))
         if game.state.is_game_over:
             logger.info('game is orver')
-            break
+            return PlayResult(True, score)
 
         logger.info('simulate %d times', num_simulations)
         for sim_id in range(num_simulations):
@@ -94,18 +127,44 @@ def run_single_play(model: M.TetrisModel, max_steps=100, num_simulations=1):
             len(current_node.children)))
         if current_node.is_leaf():
             logger.info('no legal moves found')
-            break
+            return PlayResult(True, score)
 
         logger.info('select best action (tau: {})'.format(tau))
         node, action_value, pi = select_action(current_node, tau)
         logger.info('selected (fp: {}, action_value: {:.3}'.format(
             node.value.by_fp, action_value))
 
-        # TODO: save result
-
-        game.lock(node.value.by_fp)
+        r = game.lock(node.value.by_fp)
         assert node.value.state == game.state
+        assert r is not None
+        # TODO
+        reward = r[0]
+        if r[1] is not None:
+            if r[0] == 1:
+                if r[1] == tetris.TSpinType.MINI:
+                    reward += 1
+                elif r[1] == tetris.TSpinType.NORMAL:
+                    reward += 3
+            elif r[0] == 2:
+                reward += 5
+            elif r[0] == 3:
+                reward += 7
+        elif r[0] == 4:
+            reward += 5
+        score += reward
+
+        result = StepResult(
+            copy.deepcopy(current_node.value.state),
+            node.value.by_fp,
+            action_value,
+            {current_node.children[i].value.by_fp: pi[i]
+             for i in range(len(pi))},
+            reward,
+        )
+        if not step_result_cb(step_id, result):
+            return PlayResult(False, score)
 
         current_node = node
         if tau > 0:
             tau -= 1
+        step_id += 1
