@@ -84,6 +84,7 @@ def learn(model: M.TetrisModel, memory: StepResultMemory):
 
         if len(target_indices) < BATCH_SIZE:
             break
+        i += 1
 
 
 def run(args: Optional[List[str]] = None):
