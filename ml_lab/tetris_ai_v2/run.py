@@ -36,34 +36,34 @@ class StepResultMemory:
         return random.sample(self.results, n)
 
 
-def collect_play_data(model: M.TetrisModel, memory: StepResultMemory):
-    def on_step_result(i: int, r: player.StepResult):
+def collect_play_data(model: M.TetrisModel, memory: StepResultMemory,
+                      num_simulations=1, max_steps=500, end_score=100):
+    def on_step_result(i: int, r: player.StepResult, score):
         memory.append(r)
-        return i < 30
+        return i < max_steps and score < end_score
 
     for episode_id in range(10):
-        r = player.run_single_play(model, num_simulations=1,
+        r = player.run_single_play(model, num_simulations=num_simulations,
                                    step_result_cb=on_step_result)
         logger.info('Episode {} => is_game_over: {}, score: {}'.format(
             episode_id, r.is_game_over, r.score))
 
 
-def learn(model: M.TetrisModel, memory: StepResultMemory):
+def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32):
     optimizer = optim.Adam(model.parameters())
     cross_entropy_loss = nn.CrossEntropyLoss()
     bce_with_logits_loss = nn.BCEWithLogitsLoss()
 
     logger.info('learn with {} samples'.format(len(memory)))
 
-    BATCH_SIZE = 32
-    if len(memory) < BATCH_SIZE:
+    if len(memory) < batch_size:
         return
 
     indices = list(range(len(memory)))
     random.shuffle(indices)
     i = 0
-    while True:
-        target_indices = indices[i:i + BATCH_SIZE]
+    while i < len(indices):
+        target_indices = indices[i:i + batch_size]
         logger.info('{}..{}'.format(i, i + len(target_indices)))
         batch = [memory.results[i] for i in target_indices]
 
@@ -82,15 +82,19 @@ def learn(model: M.TetrisModel, memory: StepResultMemory):
         loss.backward()
         optimizer.step()
 
-        if len(target_indices) < BATCH_SIZE:
+        if len(target_indices) < batch_size:
             break
-        i += 1
+        i += len(target_indices)
 
 
 def run(args: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(prog='PROG')
     parser.add_argument('-d', '--basedir', default='tmp/tetris_ai_v2/')
     parser.add_argument('-m', '--model', default='tetris_ai_v2.pt')
+    parser.add_argument('--batch_size', default=32)
+    parser.add_argument('--end_score', default=100)
+    parser.add_argument('--num_simulations', default=1)
+
     args = parser.parse_args(args)
 
     os.makedirs(args.basedir, exist_ok=True)
@@ -104,7 +108,8 @@ def run(args: Optional[List[str]] = None):
         model.load_state_dict(torch.load(model_file))
 
     memory = StepResultMemory()
-    collect_play_data(model, memory)
-    learn(model, memory)
+    collect_play_data(model, memory, num_simulations=args.num_simulations,
+                      end_score=args.end_score)
+    learn(model, memory, batch_size=args.batch_size)
 
     torch.save(model.state_dict(), model_file)

@@ -93,7 +93,11 @@ class StepResult:
         self.reward = reward
 
 
-StepResultCallback = Callable[[int, StepResult], bool]
+StepResultCallback = Callable[[int, StepResult, int], bool]
+
+
+def DefaultStepResultCb(i: int, r: StepResult, score: int):
+    return True
 
 
 class PlayResult(NamedTuple):
@@ -102,7 +106,7 @@ class PlayResult(NamedTuple):
 
 
 def run_single_play(model: M.TetrisModel, num_simulations=1,
-                    step_result_cb: StepResultCallback = lambda i, r: True) \
+                    step_result_cb: StepResultCallback = DefaultStepResultCb) \
         -> PlayResult:
     rand = random.Random()
     game = tetris.Game.default(rand)
@@ -161,7 +165,7 @@ def run_single_play(model: M.TetrisModel, num_simulations=1,
              for i in range(len(pi))},
             reward,
         )
-        if not step_result_cb(step_id, result):
+        if not step_result_cb(step_id, result, score):
             return PlayResult(False, score)
 
         current_node = node
