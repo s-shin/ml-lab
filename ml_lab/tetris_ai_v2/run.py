@@ -91,9 +91,9 @@ def run(args: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(prog='PROG')
     parser.add_argument('-d', '--basedir', default='tmp/tetris_ai_v2/')
     parser.add_argument('-m', '--model', default='tetris_ai_v2.pt')
-    parser.add_argument('--batch_size', default=32)
-    parser.add_argument('--end_score', default=100)
-    parser.add_argument('--num_simulations', default=1)
+    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--end_score', default=100, type=int)
+    parser.add_argument('--num_simulations', default=1, type=int)
 
     args = parser.parse_args(args)
 
