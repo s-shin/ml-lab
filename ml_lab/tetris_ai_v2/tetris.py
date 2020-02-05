@@ -477,6 +477,7 @@ class FallingPiece:
         return (n, tspin)
 
     def check_tspin_type(self, pf: Playfield) -> Optional[TSpinType]:
+        """FIXME: The logic for mini may be incorrect"""
         if self.piece is not Piece.T:
             return None
         num_corner_blocks = 0

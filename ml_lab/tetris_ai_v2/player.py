@@ -94,10 +94,32 @@ class StepResult:
 
 
 StepResultCallback = Callable[[int, StepResult, int], bool]
+RewardFunc = Callable[[int, Optional[tetris.TSpinType], tetris.GameState], int]
 
 
 def DefaultStepResultCb(i: int, r: StepResult, score: int):
     return True
+
+
+def DefaultRewardFunc(num_cleared_lines: int, tspin: Optional[tetris.TSpinType],
+                      stats: tetris.Statistics) -> int:
+    r = num_cleared_lines
+    if tspin is tetris.TSpinType.MINI:
+        if num_cleared_lines == 1:
+            r += 1
+    elif tspin is tetris.TSpinType.NORMAL:
+        if num_cleared_lines == 1:
+            r += 3
+        elif num_cleared_lines == 2:
+            r += 5
+        elif num_cleared_lines == 3:
+            r += 6
+    elif num_cleared_lines == 4:
+        r += 5
+    if stats.btb > 0:
+        r += 2
+    r += 1.4 ** stats.combos - 1.4
+    return r
 
 
 class PlayResult(NamedTuple):
@@ -105,15 +127,15 @@ class PlayResult(NamedTuple):
     score: int
 
 
-def run_single_play(model: M.TetrisModel, num_simulations=1,
-                    step_result_cb: StepResultCallback = DefaultStepResultCb) \
+def run_single_play(model: M.TetrisModel, num_simulations=1, tau=10,
+                    step_result_cb: StepResultCallback = DefaultStepResultCb,
+                    reward_func: RewardFunc = DefaultRewardFunc) \
         -> PlayResult:
     rand = random.Random()
     game = tetris.Game.default(rand)
     mcts_tree = MctsTree(mcts.TreeConfig(lambda x: 1), game.state,
                          MctsValue(game.state, None))
     current_node = mcts_tree.root
-    tau = 10
     step_id = 0
     score = 0
     while True:
@@ -141,20 +163,7 @@ def run_single_play(model: M.TetrisModel, num_simulations=1,
         r = game.lock(node.value.by_fp)
         assert node.value.state == game.state
         assert r is not None
-        # TODO
-        reward = r[0]
-        if r[1] is not None:
-            if r[0] == 1:
-                if r[1] == tetris.TSpinType.MINI:
-                    reward += 1
-                elif r[1] == tetris.TSpinType.NORMAL:
-                    reward += 3
-            elif r[0] == 2:
-                reward += 5
-            elif r[0] == 3:
-                reward += 7
-        elif r[0] == 4:
-            reward += 5
+        reward = reward_func(r[0], r[1], game.stats)
         score += reward
 
         result = StepResult(

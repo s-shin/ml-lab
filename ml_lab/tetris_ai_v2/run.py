@@ -39,8 +39,10 @@ class StepResultMemory:
 def collect_play_data(model: M.TetrisModel, memory: StepResultMemory,
                       num_episodes=10, num_simulations=1, max_steps=500,
                       end_score=100):
+    results: List[player.StepResult] = []
+
     def on_step_result(i: int, r: player.StepResult, score):
-        memory.append(r)
+        results.append(r)
         return i < max_steps and score < end_score
 
     for episode_id in range(num_episodes):
@@ -49,8 +51,14 @@ def collect_play_data(model: M.TetrisModel, memory: StepResultMemory,
         logger.info('Episode {} => is_game_over: {}, score: {}'.format(
             episode_id, r.is_game_over, r.score))
 
+        for result in results:
+            if r.is_game_over:
+                result.reward -= 1
+            memory.append(result)
 
-def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32):
+
+def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32,
+          device='cpu'):
     optimizer = optim.Adam(model.parameters())
     cross_entropy_loss = nn.CrossEntropyLoss()
     bce_with_logits_loss = nn.BCEWithLogitsLoss()
@@ -68,11 +76,13 @@ def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32):
         logger.info('{}..{}'.format(i, i + len(target_indices)))
         batch = [memory.results[i] for i in target_indices]
 
-        reward_batch = torch.stack([torch.tensor(r.reward) for r in batch])
-        action_batch = torch.stack([torch.tensor(M.fp_to_index(r.dst))
-                                    for r in batch])
+        reward_batch = \
+            torch.stack([torch.tensor(r.reward) for r in batch]).to(device)
+        action_batch = \
+            torch.stack([torch.tensor(M.fp_to_index(r.dst))
+                         for r in batch]).to(device)
         state_batch = torch.stack(
-            [M.game_state_to_tensor(r.state) for r in batch])
+            [M.game_state_to_tensor(r.state) for r in batch]).to(device)
         action_probs_batch, state_value_batch = model(state_batch)
 
         model.zero_grad()
@@ -92,10 +102,10 @@ def run(args: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(prog='PROG')
     parser.add_argument('-d', '--basedir', default='tmp/tetris_ai_v2/')
     parser.add_argument('-m', '--model', default='tetris_ai_v2.pt')
-    parser.add_argument('--num_episodes', default=10, type=int)
+    parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--end_score', default=100, type=int)
-    parser.add_argument('--num_simulations', default=1, type=int)
+    parser.add_argument('--num_simulations', default=3, type=int)
 
     args = parser.parse_args(args)
 
@@ -105,15 +115,19 @@ def run(args: Optional[List[str]] = None):
     format = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
     logging.basicConfig(level=logging.DEBUG, format=format)
 
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
     model = M.TetrisModel()
     if os.path.exists(model_file):
         model.load_state_dict(torch.load(model_file))
+        logger.info('model state was loaded from {}.'.format(model_file))
+    model.to(device)
 
     memory = StepResultMemory()
     collect_play_data(model, memory, num_episodes=args.num_episodes,
                       num_simulations=args.num_simulations,
                       end_score=args.end_score)
-    learn(model, memory, batch_size=args.batch_size)
+    learn(model, memory, device=device, batch_size=args.batch_size)
 
     torch.save(model.state_dict(), model_file)
     logger.info('model sate was saved to {}'.format(model_file))
