@@ -37,12 +37,13 @@ class StepResultMemory:
 
 
 def collect_play_data(model: M.TetrisModel, memory: StepResultMemory,
-                      num_simulations=1, max_steps=500, end_score=100):
+                      num_episodes=10, num_simulations=1, max_steps=500,
+                      end_score=100):
     def on_step_result(i: int, r: player.StepResult, score):
         memory.append(r)
         return i < max_steps and score < end_score
 
-    for episode_id in range(10):
+    for episode_id in range(num_episodes):
         r = player.run_single_play(model, num_simulations=num_simulations,
                                    step_result_cb=on_step_result)
         logger.info('Episode {} => is_game_over: {}, score: {}'.format(
@@ -91,6 +92,7 @@ def run(args: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(prog='PROG')
     parser.add_argument('-d', '--basedir', default='tmp/tetris_ai_v2/')
     parser.add_argument('-m', '--model', default='tetris_ai_v2.pt')
+    parser.add_argument('--num_episodes', default=10, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--end_score', default=100, type=int)
     parser.add_argument('--num_simulations', default=1, type=int)
@@ -108,8 +110,10 @@ def run(args: Optional[List[str]] = None):
         model.load_state_dict(torch.load(model_file))
 
     memory = StepResultMemory()
-    collect_play_data(model, memory, num_simulations=args.num_simulations,
+    collect_play_data(model, memory, num_episodes=args.num_episodes,
+                      num_simulations=args.num_simulations,
                       end_score=args.end_score)
     learn(model, memory, batch_size=args.batch_size)
 
     torch.save(model.state_dict(), model_file)
+    logger.info('model sate was saved to {}'.format(model_file))
