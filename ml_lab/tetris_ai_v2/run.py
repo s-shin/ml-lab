@@ -63,6 +63,7 @@ def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32,
     optimizer = optim.Adam(model.parameters())
     cross_entropy_loss = nn.CrossEntropyLoss()
     bce_with_logits_loss = nn.BCEWithLogitsLoss()
+    sigmoid = nn.Sigmoid()
 
     logger.info('learn with {} samples'.format(len(memory)))
 
@@ -79,6 +80,7 @@ def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32,
 
         reward_batch = \
             torch.stack([torch.tensor(r.reward) for r in batch]).to(device)
+        reward_batch = sigmoid(reward_batch)
         action_batch = \
             torch.stack([torch.tensor(M.fp_to_index(r.dst))
                          for r in batch]).to(device)
@@ -106,6 +108,7 @@ def run(args: Optional[List[str]] = None):
     parser.add_argument('--num_iterations', default=1, type=int)
     parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--max_steps', default=500, type=int)
     parser.add_argument('--end_score', default=100, type=int)
     parser.add_argument('--num_simulations', default=3, type=int)
     parser.add_argument('--tau', default=10, type=int)
@@ -132,6 +135,7 @@ def run(args: Optional[List[str]] = None):
         memory.clear()
         collect_play_data(model, memory, num_episodes=args.num_episodes,
                           num_simulations=args.num_simulations,
+                          max_steps=args.max_steps,
                           end_score=args.end_score, tau=args.tau)
         learn(model, memory, device=device, batch_size=args.batch_size)
 
