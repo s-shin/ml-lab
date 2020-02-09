@@ -75,7 +75,8 @@ def default_reward_func(num_cleared_lines: int,
         r += 5
     if stats.btb > 0:
         r += 2
-    r += 1.4 ** stats.combos - 1.4
+    if stats.combos > 0:
+        r += 1.4 ** stats.combos - 1.4
     return r
 
 
