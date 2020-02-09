@@ -722,6 +722,28 @@ class GameState:
     def __eq__(self, rhs):
         return tuple(self) == tuple(rhs)
 
+    def __str__(self):
+        s = self
+        lines = []
+        fp = s.falling_piece
+        lines.append('[{}]   ({}){:5}'.format(
+            s.hold_piece or ' ', fp.piece, s.next_pieces))
+        lines.append('--+----------+')
+        fp_grid = fp.grid()
+        for i in range(s.playfield.visible_height):
+            y = s.playfield.visible_height - 1 - i
+            row = []
+            for x in range(10):
+                cell = fp_grid.get_cell((x - fp.pos[0], y - fp.pos[1]))
+                if cell is not None and not cell.is_empty():
+                    row.append(str(cell))
+                    continue
+                row.append(str(s.playfield.grid.get_cell((x, y))))
+            lines.append('{:02}|{}|'.format(y, ''.join(row)))
+        lines.append('--+----------+')
+        lines.append('##|0123456789|')
+        return '\n'.join(lines)
+
 
 class Statistics:
     lines = 0
@@ -757,6 +779,24 @@ class Statistics:
         return Statistics.from_tuple(
             map(operator.sub, self.to_tuple(), rhs.to_tuple()))
 
+    def __str__(self):
+        s = self
+        combos_str = '{}/{}'.format(s.combos, s.max_combos)
+        btb_str = '{}/{}'.format(s.btb, s.max_btb)
+        lines = [
+            '==============',
+            'TETRIS  COMBOS',
+            '{:6}  {:>6}'.format(s.tetris, combos_str),
+            'TST___  TSD___',
+            '{:6}  {:6}'.format(s.tst, s.tsd),
+            'TSS___  TSM___',
+            '{:6}  {:6}'.format(s.tss, s.tsm),
+            'BTB___  LINES_',
+            '{:>6}  {:6}'.format(btb_str, s.lines),
+            '==============',
+        ]
+        return '\n'.join(lines)
+
 
 class Game:
     state: GameState
@@ -771,43 +811,13 @@ class Game:
         self.stats = Statistics()
 
     def __str__(self):
-        s = self.state
-        stats_lines = []
-        stats_lines.append('==============')
-        stats_lines.append('TETRIS  COMBOS')
-        combos_str = '{}/{}'.format(self.stats.combos, self.stats.max_combos)
-        stats_lines.append('{:6}  {:>6}'.format(self.stats.tetris, combos_str))
-        stats_lines.append('TST___  TSD___')
-        stats_lines.append('{:6}  {:6}'.format(self.stats.tst, self.stats.tsd))
-        stats_lines.append('TSS___  TSM___')
-        stats_lines.append('{:6}  {:6}'.format(self.stats.tss, self.stats.tsm))
-        stats_lines.append('BTB___  LINES_')
-        btb_str = '{}/{}'.format(self.stats.btb, self.stats.max_btb)
-        stats_lines.append('{:>6}  {:6}'.format(btb_str, self.stats.lines))
-        stats_lines.append('==============')
-        lines = []
-        lines.append('[{}]      {:5}'.format(
-            s.hold_piece or ' ', s.next_pieces))
-        lines.append('--+----------+  {}'.format(stats_lines[0]))
-        fp = s.falling_piece
-        fp_grid = fp.grid()
-        for i in range(s.playfield.visible_height):
-            y = 19 - i
-            row = []
-            for x in range(10):
-                cell = fp_grid.get_cell((x - fp.pos[0], y - fp.pos[1]))
-                if cell is not None and not cell.is_empty():
-                    row.append(str(cell))
-                    continue
-                row.append(str(s.playfield.grid.get_cell((x, y))))
-            stats_line = stats_lines[i + 1] if i + 1 < len(stats_lines) else ''
-            lines.append('{:02}|{}|  {}'.format(y, ''.join(row), stats_line))
-        lines.append('--+----------+')
-        lines.append('##|0123456789|')
+        state_lines = str(self.state).split('\n')
+        stats_lines = str(self.stats).split('\n')
+        lines = state_lines[:1]
+        for i in range(len(stats_lines)):
+            lines.append('{}  {}'.format(state_lines[1 + i], stats_lines[i]))
+        lines.extend(state_lines[1 + len(stats_lines):])
         return '\n'.join(lines)
-
-    def __format__(self, format_spec):
-        return str(self)
 
     def rotate(self, is_cw):
         assert self.state.falling_piece is not None

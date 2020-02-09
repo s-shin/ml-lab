@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 import logging
 import random
 from collections import deque
@@ -7,6 +8,7 @@ from typing import List, Deque, Optional
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 import ml_lab.tetris_ai_v2.player as player
 import ml_lab.tetris_ai_v2.model as M
 
@@ -38,7 +40,7 @@ class StepResultMemory:
 
 def collect_play_data(model: M.TetrisModel, memory: StepResultMemory,
                       num_episodes=10, num_simulations=1, max_steps=500,
-                      end_score=100, tau=10):
+                      end_score=100, tau=10, summary_writer=None):
     results: List[player.StepResult] = []
 
     def on_step_result(i: int, r: player.StepResult, score):
@@ -52,10 +54,11 @@ def collect_play_data(model: M.TetrisModel, memory: StepResultMemory,
             episode_id, r.is_game_over, r.score))
 
         for result in results:
-            if r.is_game_over:
-                if result.reward == 0:
-                    result.reward -= 1
             memory.append(result)
+
+        if summary_writer is not None:
+            summary_writer.add_scalar('Episode/Steps', len(results), episode_id)
+            summary_writer.add_scalar('Episode/Score', r.score, episode_id)
 
 
 def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32,
@@ -102,9 +105,11 @@ def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32,
 
 
 def run(args: Optional[List[str]] = None):
+    now_str = time.strftime('%Y%m%d_%H%M%S')
     parser = argparse.ArgumentParser(prog='PROG')
-    parser.add_argument('-d', '--basedir', default='tmp/tetris_ai_v2/')
-    parser.add_argument('-m', '--model', default='tetris_ai_v2.pt')
+    parser.add_argument('--log_basedir', default='tmp/tetris_ai_v2/log')
+    parser.add_argument('--log_dirname', default=now_str)
+    parser.add_argument('-m', '--model', default='tmp/tetris_ai_v2/model.pt')
     parser.add_argument('--num_iterations', default=1, type=int)
     parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
@@ -115,13 +120,19 @@ def run(args: Optional[List[str]] = None):
 
     args = parser.parse_args(args)
 
-    os.makedirs(args.basedir, exist_ok=True)
-    model_file = os.path.join(args.basedir, args.model)
+    model_file = args.model
+    os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
     format = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
     logging.basicConfig(level=logging.DEBUG, format=format)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    if len(args.log_basedir) == 0:
+        summary_writer = None
+    else:
+        summary_writer = SummaryWriter(log_dir=os.path.join(
+            args.log_basedir, args.log_dirname))
 
     model = M.TetrisModel()
     if os.path.exists(model_file):
@@ -135,8 +146,8 @@ def run(args: Optional[List[str]] = None):
         memory.clear()
         collect_play_data(model, memory, num_episodes=args.num_episodes,
                           num_simulations=args.num_simulations,
-                          max_steps=args.max_steps,
-                          end_score=args.end_score, tau=args.tau)
+                          max_steps=args.max_steps, end_score=args.end_score,
+                          tau=args.tau, summary_writer=summary_writer)
         learn(model, memory, device=device, batch_size=args.batch_size)
 
         torch.save(model.state_dict(), model_file)

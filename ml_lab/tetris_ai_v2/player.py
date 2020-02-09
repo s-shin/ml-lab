@@ -24,6 +24,7 @@ def simulate(target: MctsNode, model: M.TetrisModel):
     # Select
     leaf = target.select()
     assert leaf.is_leaf()
+    logger.debug('selected state:\n{}'.format(leaf.value.state))
 
     # Expand
     v = leaf.value
@@ -34,6 +35,7 @@ def simulate(target: MctsNode, model: M.TetrisModel):
         if g.state.is_game_over:
             continue
         leaf.append_child(g.state, MctsValue(g.state, fp))
+    logger.debug('expand {} moves'.format(len(found)))
 
     # Evaluate
     with torch.no_grad():
