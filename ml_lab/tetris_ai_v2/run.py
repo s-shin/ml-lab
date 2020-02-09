@@ -106,9 +106,11 @@ def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32,
 
 def run(args: Optional[List[str]] = None):
     now_str = time.strftime('%Y%m%d_%H%M%S')
+
     parser = argparse.ArgumentParser(prog='PROG')
-    parser.add_argument('--log_basedir', default='tmp/tetris_ai_v2/log')
-    parser.add_argument('--log_dirname', default=now_str)
+    parser.add_argument('--log_file', default='')
+    parser.add_argument('--tb_log_dir',
+                        default='tmp/tetris_ai_v2/tb_log/{}'.format(now_str))
     parser.add_argument('-m', '--model', default='tmp/tetris_ai_v2/model.pt')
     parser.add_argument('--num_iterations', default=1, type=int)
     parser.add_argument('--num_episodes', default=5, type=int)
@@ -123,16 +125,20 @@ def run(args: Optional[List[str]] = None):
     model_file = args.model
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
+    log_file = None if len(args.log_file) == 0 else args.log_file
+    if log_file is not None:
+        os.makedirs(os.path.dirname(args.log_file), exist_ok=True)
+
     format = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
-    logging.basicConfig(level=logging.DEBUG, format=format)
+    logging.basicConfig(level=logging.DEBUG, format=format,
+                        filename=log_file)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    if len(args.log_basedir) == 0:
+    if len(args.tb_log_dir) == 0:
         summary_writer = None
     else:
-        summary_writer = SummaryWriter(log_dir=os.path.join(
-            args.log_basedir, args.log_dirname))
+        summary_writer = SummaryWriter(log_dir=args.tb_log_dir)
 
     model = M.TetrisModel()
     if os.path.exists(model_file):
