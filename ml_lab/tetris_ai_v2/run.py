@@ -114,11 +114,11 @@ def run(args: Optional[List[str]] = None):
     parser.add_argument('-m', '--model', default='tmp/tetris_ai_v2/model.pt')
     parser.add_argument('--num_iterations', default=1, type=int)
     parser.add_argument('--num_episodes', default=5, type=int)
-    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--max_steps', default=500, type=int)
     parser.add_argument('--end_score', default=100, type=int)
     parser.add_argument('--num_simulations', default=3, type=int)
     parser.add_argument('--tau', default=10, type=int)
+    parser.add_argument('--batch_size', default=32, type=int)
 
     args = parser.parse_args(args)
 
@@ -127,7 +127,7 @@ def run(args: Optional[List[str]] = None):
 
     log_file = None if len(args.log_file) == 0 else args.log_file
     if log_file is not None:
-        os.makedirs(os.path.dirname(args.log_file), exist_ok=True)
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
     format = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
     logging.basicConfig(level=logging.DEBUG, format=format,

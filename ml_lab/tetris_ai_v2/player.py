@@ -24,7 +24,9 @@ def simulate(target: MctsNode, model: M.TetrisModel):
     # Select
     leaf = target.select()
     assert leaf.is_leaf()
-    logger.debug('selected state:\n{}'.format(leaf.value.state))
+    logger.debug('selected state: p={}, n={}, q={}, w={}\n{}'.format(
+        leaf.params.p, leaf.params.n, leaf.params.q, leaf.params.w,
+        leaf.value.state))
 
     # Expand
     v = leaf.value
