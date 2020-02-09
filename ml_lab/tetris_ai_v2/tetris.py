@@ -52,6 +52,7 @@ class Cell(IntEnum):
 
 class Grid:
     cells: np.ndarray
+    bit_cells: bitarray
 
     @classmethod
     def by_size(cls, size: Vector2):
@@ -80,18 +81,32 @@ class Grid:
         return hash(self.cells.tostring())
 
     def __sync(self):
-        self.bit_cells.pack(self.cells.tostring())
+        self.bit_cells = bitarray(self.cells.reshape(self.cells.size).tolist())
 
-    def __crop_bit_cells(self, pos: Vector2, size: Vector2):
-        raise NotImplementedError('TODO')
+    def __bit_index(self, pos: Vector2):
+        return pos[1] * self.width() + pos[0]
 
-    def width(self):
+    def __crop_bit_cells(self, pos: Vector2, size: Vector2) \
+            -> Optional[bitarray]:
+        if pos[0] < 0 or pos[0] + size[0] >= self.width() \
+                or pos[1] < 0 or pos[1] + size[1] >= self.height():
+            return None
+        r = bitarray()
+        for y in range(size[1]):
+            i = self.__bit_index((pos[0], pos[1] + y))
+            r += self.bit_cells[i:i + size[0]]
+        return r
+
+    def width(self) -> int:
         return self.cells.shape[1]
 
-    def height(self):
+    def height(self) -> int:
         return self.cells.shape[0]
 
-    def can_get_cell(self, pos: Vector2):
+    def size(self) -> Vector2:
+        return self.width(), self.height()
+
+    def can_get_cell(self, pos: Vector2) -> bool:
         return 0 <= pos[0] < self.width() and 0 <= pos[1] < self.height()
 
     def get_cell(self, pos: Vector2) -> Optional[Cell]:
@@ -100,8 +115,15 @@ class Grid:
 
     def set_cell(self, pos: Vector2, cell: Cell):
         self.cells[pos[1], pos[0]] = cell
+        self.bit_cells[self.__bit_index(pos)] = cell
 
     def can_put(self, other_pos: Vector2, other_grid: 'Grid') -> bool:
+        bits = self.__crop_bit_cells(other_pos, other_grid.size())
+        if bits is None:
+            return self.can_put_slow(other_pos, other_grid)
+        return not (bits & other_grid.bit_cells).any()
+
+    def can_put_slow(self, other_pos: Vector2, other_grid: 'Grid') -> bool:
         for og_y in range(other_grid.height()):
             for og_x in range(other_grid.width()):
                 if other_grid.get_cell((og_x, og_y)).is_empty():
@@ -194,6 +216,7 @@ class Grid:
             elif n > 0:
                 # swap two rows
                 self.cells[[y - n, y]] = self.cells[[y, y - n]]
+        self.__sync()
         return n
 
 
