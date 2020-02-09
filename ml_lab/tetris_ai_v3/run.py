@@ -2,106 +2,67 @@ import argparse
 import os
 import time
 import logging
-import random
-from collections import deque
-from typing import List, Deque, Optional
+from typing import List, Optional
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
-import ml_lab.tetris_ai_v2.player as player
-import ml_lab.tetris_ai_v2.model as M
+import ml_lab.tetris_ai_v3.agent as agent
+import ml_lab.tetris_ai_v3.model as M
 
 logger = logging.getLogger(__name__)
 
-
-class StepResultMemory:
-    capacity: int
-    results: Deque[player.StepResult]
-
-    def __init__(self, capacity=50000):
-        self.capacity = capacity
-        self.results = deque()
-
-    def __len__(self):
-        return len(self.results)
-
-    def append(self, r: player.StepResult):
-        if len(self.results) >= self.capacity:
-            self.results.popleft()
-        self.results.append(r)
-
-    def clear(self):
-        self.results = deque()
-
-    def sample(self, n: int) -> List[player.StepResult]:
-        return random.sample(self.results, n)
+MACHINE_EPS = np.finfo(np.float32).eps.item()
 
 
-def collect_play_data(model: M.TetrisModel, memory: StepResultMemory,
-                      num_episodes=10, num_simulations=1, max_steps=500,
-                      end_score=100, tau=10, summary_writer=None):
-    results: List[player.StepResult] = []
-
-    def on_step_result(i: int, r: player.StepResult, score):
-        results.append(r)
-        return i < max_steps and score < end_score
+def run_episodes(model: M.TetrisModel, device: torch.device,
+                 num_episodes=10, max_steps=500,
+                 summary_writer=None):
+    optimizer = optim.RMSprop(model.parameters())
 
     for episode_id in range(num_episodes):
-        r = player.run_single_play(model, num_simulations=num_simulations,
-                                   step_result_cb=on_step_result, tau=tau)
-        logger.info('Episode {} => is_game_over: {}, score: {}'.format(
-            episode_id, r.is_game_over, r.score))
+        results: List[agent.StepResult] = []
 
-        for result in results:
-            memory.append(result)
+        def on_step_result(_step_i: int, r: agent.StepResult, _score: int):
+            results.append(r)
+            return True
 
+        num_steps, score, game = agent.run_steps(
+            model, device, max_steps=max_steps, step_result_cb=on_step_result)
+
+        logger.info('Episode {} => steps: {}, score: {}'.format(
+            episode_id, num_steps, score))
+        logger.debug('game state:\n{}'.format(game.state))
         if summary_writer is not None:
-            summary_writer.add_scalar('Episode/Steps', len(results), episode_id)
-            summary_writer.add_scalar('Episode/Score', r.score, episode_id)
+            summary_writer.add_scalar('Episode/Steps', num_steps, episode_id)
+            summary_writer.add_scalar('Episode/Score', score, episode_id)
 
+        expected_state_values = []
+        GAMMA = 0.999
+        tmp = 0
+        for r in results[::-1]:
+            tmp = r.reward + GAMMA * tmp
+            expected_state_values.insert(0, tmp)
 
-def learn(model: M.TetrisModel, memory: StepResultMemory, batch_size=32,
-          device='cpu'):
-    optimizer = optim.Adam(model.parameters())
-    cross_entropy_loss = nn.CrossEntropyLoss()
-    bce_with_logits_loss = nn.BCEWithLogitsLoss()
-    sigmoid = nn.Sigmoid()
+        expected_state_values = torch.tensor(expected_state_values)
+        expected_state_values -= expected_state_values.mean()
+        expected_state_values /= (expected_state_values.std() + MACHINE_EPS)
 
-    logger.info('learn with {} samples'.format(len(memory)))
+        policy_losses = []
+        state_value_losses = []
+        for r, value in zip(results, expected_state_values):
+            advantage = value - r.state_value
+            policy_losses.append(-r.action_log_prob * advantage)
+            state_value_losses.append(F.smooth_l1_loss(r.state_value, value))
 
-    if len(memory) < batch_size:
-        return
-
-    indices = list(range(len(memory)))
-    random.shuffle(indices)
-    i = 0
-    while i < len(indices):
-        target_indices = indices[i:i + batch_size]
-        logger.info('{}..{}'.format(i, i + len(target_indices)))
-        batch = [memory.results[i] for i in target_indices]
-
-        reward_batch = \
-            torch.stack([torch.tensor(r.reward) for r in batch]).to(device)
-        reward_batch = sigmoid(reward_batch)
-        action_batch = \
-            torch.stack([torch.tensor(M.fp_to_index(r.dst))
-                         for r in batch]).to(device)
-        state_batch = torch.stack(
-            [M.game_state_to_tensor(r.state) for r in batch]).to(device)
-        action_probs_batch, state_value_batch = model(state_batch)
-
-        model.zero_grad()
-        loss1 = (cross_entropy_loss(action_probs_batch, action_batch) *
-                 reward_batch).mean()
-        loss2 = bce_with_logits_loss(state_value_batch, reward_batch.float())
-        loss = loss1 + loss2
+        policy_losses = torch.stack(policy_losses)
+        state_value_losses = torch.stack(state_value_losses)
+        loss = policy_losses.sum() + state_value_losses.sum()
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-        if len(target_indices) < batch_size:
-            break
-        i += len(target_indices)
 
 
 def run(args: Optional[List[str]] = None):
@@ -110,15 +71,11 @@ def run(args: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(prog='PROG')
     parser.add_argument('--log_file', default='')
     parser.add_argument('--tb_log_dir',
-                        default='tmp/tetris_ai_v2/tb_log/{}'.format(now_str))
-    parser.add_argument('-m', '--model', default='tmp/tetris_ai_v2/model.pt')
+                        default='tmp/tetris_ai_v3/tb_log/{}'.format(now_str))
+    parser.add_argument('-m', '--model', default='tmp/tetris_ai_v3/model.pt')
     parser.add_argument('--num_iterations', default=1, type=int)
     parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--max_steps', default=500, type=int)
-    parser.add_argument('--end_score', default=100, type=int)
-    parser.add_argument('--num_simulations', default=3, type=int)
-    parser.add_argument('--tau', default=10, type=int)
-    parser.add_argument('--batch_size', default=32, type=int)
 
     args = parser.parse_args(args)
 
@@ -133,7 +90,7 @@ def run(args: Optional[List[str]] = None):
     logging.basicConfig(level=logging.DEBUG, format=format,
                         filename=log_file)
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     if len(args.tb_log_dir) == 0:
         summary_writer = None
@@ -146,15 +103,11 @@ def run(args: Optional[List[str]] = None):
         logger.info('model state was loaded from {}.'.format(model_file))
     model.to(device)
 
-    memory = StepResultMemory()
     for i in range(args.num_iterations):
         logger.info('iteration#{}'.format(i))
-        memory.clear()
-        collect_play_data(model, memory, num_episodes=args.num_episodes,
-                          num_simulations=args.num_simulations,
-                          max_steps=args.max_steps, end_score=args.end_score,
-                          tau=args.tau, summary_writer=summary_writer)
-        learn(model, memory, device=device, batch_size=args.batch_size)
+
+        run_episodes(model, device, args.num_episodes, args.max_steps,
+                     summary_writer)
 
         torch.save(model.state_dict(), model_file)
         logger.info('model sate was saved to {}'.format(model_file))

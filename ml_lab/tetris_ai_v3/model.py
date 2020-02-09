@@ -2,17 +2,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import ml_lab.tetris_ai_v2.tetris as tetris
+import ml_lab.tetris_ai_v3.tetris as tetris
 
 INPUT_CHANNELS = 7
 PLAYFIELD_SIZE = tetris.DEFAULT_PLAYFIELD_SIZE
 NUM_CELLS = PLAYFIELD_SIZE[0] * PLAYFIELD_SIZE[1]
 NUM_ROTATION_TYPES = 4
 NUM_ACTION_TYPES = NUM_CELLS * NUM_ROTATION_TYPES
-# NUM_RESIDUAL_LAYERS = 20
-# K = 192
-NUM_RESIDUAL_LAYERS = 10
-K = 96
+NUM_RESIDUAL_LAYERS = 20
+K = 192
 
 
 def game_state_to_tensor(s: tetris.GameState) -> torch.Tensor:
