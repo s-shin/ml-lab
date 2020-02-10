@@ -2,7 +2,7 @@ import argparse
 import os
 import time
 import logging
-from typing import List, Optional
+from typing import List, Optional, NamedTuple
 import numpy as np
 import torch
 import torch.nn as nn
@@ -42,6 +42,15 @@ def calc_loss(results: List[agent.StepResult], gamma=0.999):
     return loss
 
 
+class Args(NamedTuple):
+    log_file: str
+    tb_log_dir: str
+    model: str
+    learning_episode_interval: int
+    num_episodes: int
+    max_steps: int
+
+
 def run(args: Optional[List[str]] = None):
     now_str = time.strftime('%Y%m%d_%H%M%S')
 
@@ -54,7 +63,7 @@ def run(args: Optional[List[str]] = None):
     parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--max_steps', default=500, type=int)
 
-    args = parser.parse_args(args)
+    args = parser.parse_args(args)  # type: Args
 
     model_file = args.model
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
@@ -63,8 +72,8 @@ def run(args: Optional[List[str]] = None):
     if log_file is not None:
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
-    format = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
-    logging.basicConfig(level=logging.DEBUG, format=format,
+    log_format = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
+    logging.basicConfig(level=logging.DEBUG, format=log_format,
                         filename=log_file)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -79,12 +88,12 @@ def run(args: Optional[List[str]] = None):
         model.load_state_dict(torch.load(model_file))
         logger.info('model state was loaded from {}.'.format(model_file))
     model.to(device)
+
     # optimizer = optim.RMSprop(model.parameters())
     optimizer = optim.Adam(model.parameters())
+    results: List[agent.StepResult] = []
 
     for episode_id in range(args.num_episodes):
-        results: List[agent.StepResult] = []
-
         def on_step_result(_step_i: int, r: agent.StepResult, _score: int):
             results.append(r)
             return True
@@ -105,6 +114,9 @@ def run(args: Optional[List[str]] = None):
             loss = calc_loss(results)
             loss.backward()
             optimizer.step()
+            results = []
 
             torch.save(model.state_dict(), model_file)
             logger.info('model sate was saved to {}'.format(model_file))
+
+    logger.info('Finished!')
