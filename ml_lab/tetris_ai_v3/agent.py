@@ -3,6 +3,7 @@ import copy
 from typing import Optional, Tuple, Callable
 import random
 import torch
+import torch.nn.functional as F
 from torch.distributions import Categorical
 import ml_lab.tetris_ai_v3.tetris as tetris
 import ml_lab.tetris_ai_v3.model as M
@@ -17,17 +18,12 @@ def decide_action(model: M.TetrisModel, device: torch.device,
     action_probs = action_probs_batch[0]
     state_value = state_value_batch[0]
     found = state.falling_piece.search_droppable(state.playfield)
-    legal_indices = torch.tensor(
-        [M.fp_to_index(fp) for fp, _ in found], device=device)
-    m1 = Categorical(action_probs)
-    action_probs2: torch.Tensor = action_probs[legal_indices]
-    if action_probs2.sum() > 0:
-        m2 = Categorical(action_probs2)
-        idx2 = m2.sample().item()
-    else:
-        logger.debug('random action')
-        idx2 = random.randint(0, len(found) - 1)
-    return found[idx2], m1.log_prob(legal_indices[idx2]), state_value
+    legal_indices = [M.fp_to_index(fp) for fp, _ in found]
+    legal_indices_tensor = torch.tensor(legal_indices, device=device)
+    legal_action_probs = F.softmax(action_probs[legal_indices_tensor], dim=-1)
+    m = Categorical(legal_action_probs)
+    action_idx = m.sample()
+    return found[action_idx.item()], m.log_prob(action_idx), state_value
 
 
 class StepResult:
