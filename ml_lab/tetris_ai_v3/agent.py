@@ -21,10 +21,11 @@ def decide_action(model: M.TetrisModel, device: torch.device,
         [M.fp_to_index(fp) for fp, _ in found], device=device)
     m1 = Categorical(action_probs)
     action_probs2: torch.Tensor = action_probs[legal_indices]
-    if action_probs2.byte().any():
+    if action_probs2.sum() > 0:
         m2 = Categorical(action_probs2)
         idx2 = m2.sample().item()
     else:
+        logger.debug('random action')
         idx2 = random.randint(0, len(found) - 1)
     return found[idx2], m1.log_prob(legal_indices[idx2]), state_value
 
@@ -77,7 +78,7 @@ def default_reward_func(num_cleared_lines: int,
         r += 2
     if stats.combos > 0:
         r += 1.4 ** stats.combos - 1.4
-    return r
+    return 1 + r * 5
 
 
 def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,

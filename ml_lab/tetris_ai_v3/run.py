@@ -32,12 +32,13 @@ def run_episodes(model: M.TetrisModel, device: torch.device,
         num_steps, score, game = agent.run_steps(
             model, device, max_steps=max_steps, step_result_cb=on_step_result)
 
-        logger.info('Episode {} => steps: {}, score: {}'.format(
-            episode_id, num_steps, score))
-        logger.debug('game state:\n{}'.format(game.state))
+        logger.info('Episode {} => steps: {}, score: {}, game:\n{}'.format(
+            episode_id, num_steps, score, game))
         if summary_writer is not None:
             summary_writer.add_scalar('Episode/Steps', num_steps, episode_id)
             summary_writer.add_scalar('Episode/Score', score, episode_id)
+
+        logger.info('Learning...')
 
         expected_state_values = []
         GAMMA = 0.999
