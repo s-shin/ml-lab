@@ -432,7 +432,7 @@ class FallingPiece:
         return self
 
     def __str__(self):
-        return '<FallingPiece {} {} ({}, {})>'.format(
+        return '{}:{}:{},{}'.format(
             self.piece, self.rotation, self.pos[0], self.pos[1])
 
     def __iter__(self):

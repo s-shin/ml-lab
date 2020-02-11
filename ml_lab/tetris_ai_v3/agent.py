@@ -92,14 +92,14 @@ def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
             model, device, game.state)
         fp, _ = action
 
-        logger.info('state_value: {:.3f}, fp = {} ({:.3f})'.format(
-            state_value, fp, action_log_prob))
-
         r = game.lock(fp)
         assert r is not None
         reward = reward_func(game.state, prev_stats, game.stats)
         prev_stats = game.stats
         total_score += reward
+
+        logger.info('state_value: {:.3f}, fp: {} ({:.3f}), reward: {:.3f}'
+                    .format(state_value, fp, action_log_prob, reward))
 
         result = StepResult(
             # copy.deepcopy(game.state),
