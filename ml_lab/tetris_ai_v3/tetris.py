@@ -106,6 +106,9 @@ class Grid:
     def size(self) -> Vector2:
         return self.width(), self.height()
 
+    def is_empty(self) -> bool:
+        return not self.bit_cells.any()
+
     def can_get_cell(self, pos: Vector2) -> bool:
         return 0 <= pos[0] < self.width() and 0 <= pos[1] < self.height()
 
@@ -218,6 +221,13 @@ class Grid:
                 self.cells[[y - n, y]] = self.cells[[y, y - n]]
         self.__sync()
         return n
+
+    def non_empty_rows_density(self) -> float:
+        num_non_empty_rows = \
+            self.height() - self.top_padding() - self.bottom_padding()
+        if num_non_empty_rows == 0:
+            return 1
+        return self.bit_cells.count() / (self.width() * num_non_empty_rows)
 
 
 def gen_grids(cells_cw0_list):
@@ -748,31 +758,32 @@ class GameState:
 class Statistics:
     lines = 0
     tetris = 0
-    combos = 0
+    combos = 0  # can be reset
     max_combos = 0
     tst = 0
     tsd = 0
     tss = 0
     tsm = 0
     tsz = 0
-    btb = 0
+    btb = 0  # can be reset
     max_btb = 0
     dropped_lines = 0
     dropped_pieces = 0
     hold = 0
+    perfect_clear = 0
 
     def to_tuple(self):
         return (self.lines, self.tetris, self.combos, self.max_combos,
                 self.tst, self.tsd, self.tss, self.tsm, self.tsz, self.btb,
                 self.max_btb, self.dropped_lines, self.dropped_pieces,
-                self.hold)
+                self.hold, self.perfect_clear)
 
     @classmethod
     def from_tuple(cls, t):
         s = cls()
         (s.lines, s.tetris, s.combos, s.max_combos, s.tst, s.tsd,
          s.tss, s.tsm, s.tsz, s.btb, s.max_btb, s.dropped_lines,
-         s.dropped_pieces, s.hold) = t
+         s.dropped_pieces, s.hold, s.perfect_clear) = t
         return s
 
     def __sub__(self, rhs: 'Statistics'):
@@ -793,6 +804,8 @@ class Statistics:
             '{:6}  {:6}'.format(s.tss, s.tsm),
             'BTB___  LINES_',
             '{:>6}  {:6}'.format(btb_str, s.lines),
+            'PC____',
+            '{:>6}'.format(s.perfect_clear),
             '==============',
         ]
         return '\n'.join(lines)
@@ -877,6 +890,8 @@ class Game:
                     stats.max_btb = max(stats.btb, stats.max_btb)
                 else:
                     s.is_in_btb = True
+            if s.playfield.grid.is_empty():
+                stats.perfect_clear += 1
         else:
             stats.combos = 0
             stats.btb = 0
@@ -903,3 +918,4 @@ class Game:
                 s.playfield)
             s.hold_piece = piece_to_be_held
             s.can_hold = False
+            self.stats.hold += 1

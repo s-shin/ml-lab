@@ -50,27 +50,29 @@ RewardFunc = Callable[
     [int, Optional[tetris.TSpinType], tetris.GameState], float]
 
 
-def default_reward_func(num_cleared_lines: int,
-                        tspin: Optional[tetris.TSpinType],
+def default_reward_func(state: tetris.GameState,
+                        prev_stats: tetris.Statistics,
                         stats: tetris.Statistics) -> float:
-    r = num_cleared_lines
-    if tspin is tetris.TSpinType.MINI:
-        if num_cleared_lines == 1:
+    r = state.playfield.grid.non_empty_rows_density()
+    diff = stats - prev_stats
+    r += diff.lines
+    if diff.lines > 1:
+        if diff.tsm > 0:
             r += 1
-    elif tspin is tetris.TSpinType.NORMAL:
-        if num_cleared_lines == 1:
+        elif diff.tss > 0:
             r += 3
-        elif num_cleared_lines == 2:
+        elif diff.tsd > 0:
             r += 5
-        elif num_cleared_lines == 3:
-            r += 6
-    elif num_cleared_lines == 4:
-        r += 5
-    if stats.btb > 0:
-        r += 2
-    if stats.combos > 0:
+        elif diff.tst > 0:
+            r += 7
+        elif diff.tetris > 0:
+            r += 5
+        if diff.perfect_clear > 0:
+            r += 10
+        if diff.btb > 0:
+            r += 2
         r += 1.4 ** stats.combos - 1.4
-    return 1 + r
+    return r
 
 
 def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
@@ -81,6 +83,7 @@ def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
     game = tetris.Game.default(rand)
     total_score = 0
     step_id = -1
+    prev_stats = tetris.Statistics()
     for step_id in range(max_steps):
         logger.info('step#{}'.format(step_id))
         logger.debug('game:\n{}'.format(game))
@@ -94,7 +97,8 @@ def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
 
         r = game.lock(fp)
         assert r is not None
-        reward = reward_func(r[0], r[1], game.stats)
+        reward = reward_func(game.state, prev_stats, game.stats)
+        prev_stats = game.stats
         total_score += reward
 
         result = StepResult(
