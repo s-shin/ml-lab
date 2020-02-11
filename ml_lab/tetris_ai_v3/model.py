@@ -97,3 +97,22 @@ class TetrisModel(nn.Module):
         state_value_batch = self.value_head(value_x)
 
         return action_probs_batch, state_value_batch.squeeze(1)
+
+# class TetrisModel(nn.Module):
+#     def __init__(self):
+#         super(TetrisModel, self).__init__()
+#         self.conv1 = nn.Conv2d(INPUT_CHANNELS, K, kernel_size=3, padding=1)
+#         self.conv2 = nn.Conv2d(K, K, kernel_size=3, padding=1)
+#         self.conv3 = nn.Conv2d(K, 1, kernel_size=3, padding=1)
+#         self.policy_head = nn.Linear(NUM_CELLS, NUM_ACTION_TYPES)
+#         self.value_head = nn.Linear(NUM_CELLS, 1)
+#
+#     def forward(self, x):
+#         batch_size = x.shape[0]
+#         x = F.relu(self.conv1(x))
+#         x = F.relu(self.conv2(x))
+#         x = F.relu(self.conv3(x))
+#         x = x.view(batch_size, -1)
+#         action_probs_batch = F.softmax(self.policy_head(x), dim=-1)
+#         state_value_batch = self.value_head(x)
+#         return action_probs_batch, state_value_batch.squeeze(1)

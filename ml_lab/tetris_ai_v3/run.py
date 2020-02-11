@@ -30,7 +30,7 @@ def calc_loss(results: List[agent.StepResult], gamma=0.99):
     policy_losses = []
     value_losses = []
     for r, reward in zip(results, rewards):
-        advantage = reward - r.state_value
+        advantage = reward - r.state_value.item()  # NOTE: .item() is required!
         policy_losses.append(-r.action_log_prob * advantage)
         value_losses.append(F.smooth_l1_loss(r.state_value, reward))
 
@@ -102,7 +102,7 @@ def run(args: Optional[List[str]] = None):
             model, device, max_steps=args.max_steps,
             step_result_cb=on_step_result)
 
-        logger.info('Episode {} => steps: {}, score: {}, game:\n{}'.format(
+        logger.info('Episode {} => steps: {}, score: {:.3f}, game:\n{}'.format(
             episode_id, num_steps, score, game))
         if summary_writer is not None:
             summary_writer.add_scalar('Episode/Steps', num_steps, episode_id)
