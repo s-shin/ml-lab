@@ -1,5 +1,4 @@
 from logging import getLogger
-import copy
 from typing import Optional, Tuple, Callable
 import random
 import torch
@@ -27,17 +26,14 @@ def decide_action(model: M.TetrisModel, device: torch.device,
 
 
 class StepResult:
-    state: tetris.GameState
-    dst: tetris.FallingPiece
+    # state: tetris.GameState
+    # dst: tetris.FallingPiece
     action_log_prob: torch.Tensor
     state_value: torch.Tensor
     reward: float
 
-    def __init__(self, state: tetris.GameState, dst: tetris.FallingPiece,
-                 action_log_prob: torch.Tensor, state_value: torch.Tensor,
+    def __init__(self, action_log_prob: torch.Tensor, state_value: torch.Tensor,
                  reward: float):
-        self.state = state
-        self.dst = dst
         self.action_log_prob = action_log_prob
         self.state_value = state_value
         self.reward = reward
@@ -102,8 +98,8 @@ def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
         total_score += reward
 
         result = StepResult(
-            copy.deepcopy(game.state),
-            fp,
+            # copy.deepcopy(game.state),
+            # fp,
             action_log_prob,
             state_value,
             reward,
