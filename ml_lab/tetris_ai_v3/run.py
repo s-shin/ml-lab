@@ -18,34 +18,32 @@ MACHINE_EPS = np.finfo(np.float32).eps.item()
 
 def calc_loss(results: List[agent.StepResult], gamma=0.999):
     # Discounted total rewards
-    expected_state_values = []
+    expected_values = []
     tmp = 0
     for r in results[::-1]:
         tmp = r.reward + gamma * tmp
-        expected_state_values.insert(0, tmp)
+        expected_values.insert(0, tmp)
     # Standarize
-    expected_state_values = torch.tensor(expected_state_values)
-    expected_state_values -= expected_state_values.mean()
-    expected_state_values /= (expected_state_values.std() + MACHINE_EPS)
+    expected_values = torch.tensor(expected_values)
+    expected_values -= expected_values.mean()
+    expected_values /= (expected_values.std() + MACHINE_EPS)
 
     policy_losses = []
-    state_value_losses = []
-    for r, value in zip(results, expected_state_values):
+    value_losses = []
+    for r, value in zip(results, expected_values):
         advantage = value - r.state_value
         policy_losses.append(-r.action_log_prob * advantage)
-        state_value_losses.append(F.smooth_l1_loss(r.state_value, value))
+        value_losses.append(F.smooth_l1_loss(r.state_value, value))
 
     policy_losses = torch.stack(policy_losses)
-    state_value_losses = torch.stack(state_value_losses)
-    loss = policy_losses.sum() + state_value_losses.sum()
-    return loss
+    value_losses = torch.stack(value_losses)
+    return policy_losses.sum() ** 2 + value_losses.sum() ** 2
 
 
 class Args(NamedTuple):
     log_file: str
     tb_log_dir: str
     model: str
-    learning_episode_interval: int
     num_episodes: int
     max_steps: int
 
@@ -58,7 +56,6 @@ def run(args: Optional[List[str]] = None):
     parser.add_argument('--tb_log_dir',
                         default='tmp/tetris_ai_v3/tb_log/{}'.format(now_str))
     parser.add_argument('-m', '--model', default='tmp/tetris_ai_v3/model.pt')
-    parser.add_argument('--learning_episode_interval', default=1, type=int)
     parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--max_steps', default=500, type=int)
 
@@ -107,15 +104,16 @@ def run(args: Optional[List[str]] = None):
             summary_writer.add_scalar('Episode/Steps', num_steps, episode_id)
             summary_writer.add_scalar('Episode/Score', score, episode_id)
 
-        if (episode_id + 1) % args.learning_episode_interval == 0:
-            logger.info('Learning...')
-            optimizer.zero_grad()
-            loss = calc_loss(results)
-            loss.backward()
-            optimizer.step()
-            results = []
+        logger.info('Learning...')
+        loss = calc_loss(results)
+        logger.info('loss = {}'.format(loss.item()))
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-            torch.save(model.state_dict(), model_file)
-            logger.info('model sate was saved to {}'.format(model_file))
+        results = []
+
+        torch.save(model.state_dict(), model_file)
+        logger.info('model sate was saved to {}'.format(model_file))
 
     logger.info('Finished!')
