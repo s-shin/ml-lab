@@ -89,7 +89,7 @@ def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
             model, device, game.state)
         fp, _ = action
 
-        logger.info('state_value: {}, fp = {} ({})'.format(
+        logger.info('state_value: {:.3f}, fp = {} ({:.3f})'.format(
             state_value, fp, action_log_prob))
 
         r = game.lock(fp)

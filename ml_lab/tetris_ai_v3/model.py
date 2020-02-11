@@ -9,10 +9,8 @@ PLAYFIELD_SIZE = tetris.DEFAULT_PLAYFIELD_SIZE
 NUM_CELLS = PLAYFIELD_SIZE[0] * PLAYFIELD_SIZE[1]
 NUM_ROTATION_TYPES = 4
 NUM_ACTION_TYPES = NUM_CELLS * NUM_ROTATION_TYPES
-# NUM_RESIDUAL_LAYERS = 20
-# K = 192
-NUM_RESIDUAL_LAYERS = 5
-K = 48
+NUM_RESIDUAL_LAYERS = 20
+K = 192
 
 
 def game_state_to_tensor(s: tetris.GameState) -> torch.Tensor:
@@ -46,33 +44,54 @@ def fp_to_index(fp: tetris.FallingPiece) -> int:
 class ResidualLayer(nn.Module):
     def __init__(self):
         super(ResidualLayer, self).__init__()
-        self.conv1 = nn.Conv2d(K, K, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(K, K, kernel_size=3, padding=1, bias=False)
         self.norm1 = nn.BatchNorm2d(K)
-        self.conv2 = nn.Conv2d(K, K, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(K, K, kernel_size=3, padding=1, bias=False)
         self.norm2 = nn.BatchNorm2d(K)
-        self.conv3 = nn.Conv2d(K, K, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(K, K, kernel_size=3, padding=1, bias=False)
 
-    def forward(self, input):
+    def forward(self, input: torch.Tensor):
         x = F.relu(self.norm1(self.conv1(input)))
         x = self.norm2(self.conv2(x))
         x = F.relu(input + x)
         return x
 
 
+class Bias(nn.Module):
+    def __init__(self, dim):
+        super(Bias, self).__init__()
+        self.bias = nn.Parameter(torch.zeros(dim))
+
+    def forward(self, x):
+        return x + self.bias
+
+
 class TetrisModel(nn.Module):
     def __init__(self):
         super(TetrisModel, self).__init__()
         self.conv1 = nn.Conv2d(INPUT_CHANNELS, K, kernel_size=3, padding=1)
-        self.res_layers = [ResidualLayer() for i in range(NUM_RESIDUAL_LAYERS)]
-        self.action_head = nn.Linear(K * NUM_CELLS, NUM_ACTION_TYPES)
-        self.state_value_head = nn.Linear(K * NUM_CELLS, 1)
+        self.res_layers = nn.ModuleList(
+            [ResidualLayer() for i in range(NUM_RESIDUAL_LAYERS)])
+        self.policy_conv1 = nn.Conv2d(K, 1, kernel_size=1, bias=False)
+        self.policy_bias = Bias(NUM_CELLS)
+        self.policy_head = nn.Linear(NUM_CELLS, NUM_ACTION_TYPES)
+        self.value_conv1 = nn.Conv2d(K, 1, kernel_size=3, padding=1)
+        self.value_norm1 = nn.BatchNorm2d(1)
+        self.value_fcl1 = nn.Linear(NUM_CELLS, 256)
+        self.value_head = nn.Linear(256, 1)
 
     def forward(self, x):
         batch_size = x.shape[0]
         x = F.relu(self.conv1(x))
         for layer in self.res_layers:
             x = layer(x)
-        x = x.view(batch_size, -1)
-        action_probs_batch = F.softmax(self.action_head(x), dim=-1)
-        state_value_batch = self.state_value_head(x)
+
+        policy_x = self.policy_conv1(x)
+        policy_x = self.policy_bias(policy_x.view(batch_size, -1))
+        action_probs_batch = F.softmax(self.policy_head(policy_x), dim=-1)
+
+        value_x = F.relu(self.value_norm1(self.value_conv1(x)))
+        value_x = F.relu(self.value_fcl1(value_x.view(batch_size, -1)))
+        state_value_batch = self.value_head(value_x)
+
         return action_probs_batch, state_value_batch.squeeze(1)
