@@ -106,6 +106,8 @@ def run(args: Optional[List[str]] = None):
 
         logger.info('Learning...')
         loss = calc_loss(results)
+        if summary_writer:
+            summary_writer.add_scalar('Episode/Loss', loss.item(), episode_id)
         logger.info('loss = {}'.format(loss.item()))
         optimizer.zero_grad()
         loss.backward()
