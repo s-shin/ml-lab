@@ -70,7 +70,7 @@ def default_reward_func(num_cleared_lines: int,
         r += 2
     if stats.combos > 0:
         r += 1.4 ** stats.combos - 1.4
-    return 1 + r * 5
+    return 1 + r
 
 
 def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
