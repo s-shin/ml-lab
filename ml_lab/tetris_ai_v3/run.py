@@ -37,7 +37,7 @@ def calc_loss(results: List[agent.StepResult], gamma=0.999):
 
     policy_losses = torch.stack(policy_losses)
     value_losses = torch.stack(value_losses)
-    return policy_losses.sum() ** 2 + value_losses.sum() ** 2
+    return policy_losses.sum() + value_losses.sum()
 
 
 class Args(NamedTuple):
