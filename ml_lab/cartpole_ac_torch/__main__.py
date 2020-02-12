@@ -66,7 +66,7 @@ def learn(args):
         # Calculate state value function in each step
         expected_state_values = []
         for step_id in range(len(step_record)):
-            v = sum([GAMMA**i * ent.reward
+            v = sum([GAMMA ** i * ent.reward
                      for i, ent in enumerate(step_record[step_id:])])
             expected_state_values.append(v)
         # Optimized code:
@@ -90,10 +90,12 @@ def learn(args):
                 F.smooth_l1_loss(entry.state_value, value))
 
         loss = torch.stack(policy_losses).sum() + \
-            torch.stack(state_value_losses).sum()
+               torch.stack(state_value_losses).sum()
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        print('Episode {} => steps: {}, loss: {}'.format(
+            episode_id, step_id + 1, loss.item()))
 
         writer.add_scalar('Episode/Steps', step_id + 1, episode_id)
 
