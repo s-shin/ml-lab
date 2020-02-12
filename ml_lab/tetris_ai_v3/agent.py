@@ -53,9 +53,9 @@ RewardFunc = Callable[
 def default_reward_func(state: tetris.GameState,
                         prev_stats: tetris.Statistics,
                         stats: tetris.Statistics) -> float:
-    r = state.playfield.grid.non_empty_rows_density()
+    base = state.playfield.grid.non_empty_rows_density()
     diff = stats - prev_stats
-    r += diff.lines
+    r = diff.lines
     if diff.lines > 1:
         if diff.tsm > 0:
             r += 1
@@ -72,7 +72,7 @@ def default_reward_func(state: tetris.GameState,
         if diff.btb > 0:
             r += 2
         r += 1.4 ** stats.combos - 1.4
-    return r
+    return base + r * 5
 
 
 def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
