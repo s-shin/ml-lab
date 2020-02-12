@@ -1,6 +1,7 @@
 from logging import getLogger
 from typing import Optional, Tuple, Callable
 import random
+import copy
 import torch
 import torch.nn.functional as F
 from torch.distributions import Categorical
@@ -95,7 +96,7 @@ def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
         r = game.lock(fp)
         assert r is not None
         reward = reward_func(game.state, prev_stats, game.stats)
-        prev_stats = game.stats
+        prev_stats = copy.deepcopy(game.stats)
         total_score += reward
 
         logger.info('state_value: {:.3f}, fp: {} ({:.3f}), reward: {:.3f}'
