@@ -94,6 +94,8 @@ def run(args: Optional[List[str]] = None):
     results: List[agent.StepResult] = []
 
     for episode_id in range(args.num_episodes):
+        logger.info('Episode#{}'.format(episode_id))
+
         def on_step_result(_step_i: int, r: agent.StepResult, _score: int):
             results.append(r)
             return True
@@ -102,8 +104,8 @@ def run(args: Optional[List[str]] = None):
             model, device, max_steps=args.max_steps,
             step_result_cb=on_step_result)
 
-        logger.info('Episode {} => steps: {}, score: {:.3f}, game:\n{}'.format(
-            episode_id, num_steps, score, game))
+        logger.info('steps: {}, score: {:.3f}, game:\n{}'.format(
+            num_steps, score, game))
         if summary_writer is not None:
             summary_writer.add_scalar('Episode/Steps', num_steps, episode_id)
             summary_writer.add_scalar('Episode/Score', score, episode_id)
@@ -112,7 +114,7 @@ def run(args: Optional[List[str]] = None):
         loss = calc_loss(results, gamma=args.discount_rate)
         if summary_writer:
             summary_writer.add_scalar('Episode/Loss', loss.item(), episode_id)
-        logger.info('loss = {}'.format(loss.item()))
+        logger.info('loss: {}'.format(loss.item()))
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
