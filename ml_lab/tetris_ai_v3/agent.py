@@ -54,7 +54,10 @@ RewardFunc = Callable[
 def default_reward_func(state: tetris.GameState,
                         prev_stats: tetris.Statistics,
                         stats: tetris.Statistics) -> float:
-    base = state.playfield.grid.non_empty_rows_density()
+    g = state.playfield.grid
+    n1 = g.num_non_empty_cells()
+    n2 = g.height() - g.top_padding() - g.bottom_padding()
+    base = n1 / (n2 * g.width()) * (0.9 ** n2)
     diff = stats - prev_stats
     r = diff.lines
     if diff.lines > 1:

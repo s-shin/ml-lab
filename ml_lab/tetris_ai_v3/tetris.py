@@ -222,12 +222,8 @@ class Grid:
         self.__sync()
         return n
 
-    def non_empty_rows_density(self) -> float:
-        num_non_empty_rows = \
-            self.height() - self.top_padding() - self.bottom_padding()
-        if num_non_empty_rows == 0:
-            return 1
-        return self.bit_cells.count() / (self.width() * num_non_empty_rows)
+    def num_non_empty_cells(self):
+        return self.bit_cells.count()
 
 
 def gen_grids(cells_cw0_list):
