@@ -45,6 +45,7 @@ class Args(NamedTuple):
     log_file: str
     tb_log_dir: str
     model: str
+    optimizer: str
     num_episodes: int
     max_steps: int
     discount_rate: float
@@ -59,6 +60,8 @@ def run(args: Optional[List[str]] = None):
     parser.add_argument('--tb_log_dir',
                         default='tmp/tetris_ai_v3/tb_log/{}'.format(now_str))
     parser.add_argument('-m', '--model', default='tmp/tetris_ai_v3/model.pt')
+    parser.add_argument('--optimizer', default='adam',
+                        choices=['adam', 'rmsprop'])
     parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--max_steps', default=500, type=int)
     parser.add_argument('--discount_rate', default=0.99, type=float)
@@ -89,8 +92,11 @@ def run(args: Optional[List[str]] = None):
         logger.info('model state was loaded from {}.'.format(model_file))
     model.to(device)
 
-    # optimizer = optim.RMSprop(model.parameters())
-    optimizer = optim.Adam(model.parameters())
+    if args.optimizer == 'adam':
+        optimizer = optim.Adam(model.parameters())
+    elif args.optimizer == 'rmsprop':
+        optimizer = optim.RMSprop(model.parameters())
+
     results: List[agent.StepResult] = []
 
     for episode_id in range(args.num_episodes):

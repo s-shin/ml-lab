@@ -1,5 +1,5 @@
 from logging import getLogger
-from typing import Optional, Tuple, Callable
+from typing import List, Tuple, Callable
 import random
 import copy
 import torch
@@ -48,35 +48,61 @@ def default_step_result_cb(_step_i: int, _r: StepResult, _score: int):
 
 
 RewardFunc = Callable[
-    [int, Optional[tetris.TSpinType], tetris.GameState], float]
+    [tetris.GameState, tetris.Statistics, tetris.Statistics], float]
 
 
-def default_reward_func(state: tetris.GameState,
-                        prev_stats: tetris.Statistics,
-                        stats: tetris.Statistics) -> float:
-    g = state.playfield.grid
-    n1 = g.num_non_empty_cells()
-    n2 = g.height() - g.top_padding() - g.bottom_padding()
-    base = n1 / (n2 * g.width()) * (0.9 ** n2)
-    diff = stats - prev_stats
-    r = diff.lines
-    if diff.lines > 1:
-        if diff.tsm > 0:
-            r += 1
-        elif diff.tss > 0:
-            r += 3
-        elif diff.tsd > 0:
-            r += 5
-        elif diff.tst > 0:
-            r += 7
-        elif diff.tetris > 0:
-            r += 5
-        if diff.perfect_clear > 0:
-            r += 10
-        if diff.btb > 0:
-            r += 2
-        r += 1.4 ** stats.combos - 1.4
-    return base + r * 5
+class BaseRewardFunc:
+    def __init__(self, decay=1):
+        self.decay = decay
+
+    def __call__(self, state: tetris.GameState, _prev_stats: tetris.Statistics,
+                 _stats: tetris.Statistics) -> float:
+        g = state.playfield.grid
+        n1 = g.num_non_empty_cells()
+        n2 = g.height() - g.top_padding() - g.bottom_padding()
+        r = n1 / (n2 * g.width()) * (self.decay ** n2)
+        return r
+
+
+class BonusRewardFunc:
+    def __call__(self, _state: tetris.GameState, prev_stats: tetris.Statistics,
+                 stats: tetris.Statistics) -> float:
+        diff = stats - prev_stats
+        r = diff.lines
+        if diff.lines > 1:
+            if diff.tsm > 0:
+                r += 1
+            elif diff.tss > 0:
+                r += 3
+            elif diff.tsd > 0:
+                r += 5
+            elif diff.tst > 0:
+                r += 7
+            elif diff.tetris > 0:
+                r += 5
+            if diff.perfect_clear > 0:
+                r += 10
+            if diff.btb > 0:
+                r += 2
+            r += 1.4 ** stats.combos - 1.4
+        return r
+
+
+def reward_func_factory(*func_amp_list: List[Tuple[RewardFunc, float]]):
+    def reward_func(state: tetris.GameState, prev_stats: tetris.Statistics,
+                    stats: tetris.Statistics) -> float:
+        r = 0
+        for (fn, amp) in func_amp_list:
+            r += fn(state, prev_stats, stats) * amp
+        return r
+
+    return reward_func
+
+
+default_reward_func = reward_func_factory(
+    (BaseRewardFunc(), 1),
+    (BonusRewardFunc(), 5),
+)
 
 
 def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
