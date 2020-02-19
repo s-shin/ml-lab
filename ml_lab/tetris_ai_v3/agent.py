@@ -51,7 +51,16 @@ RewardFunc = Callable[
     [tetris.GameState, tetris.Statistics, tetris.Statistics], float]
 
 
-class BaseRewardFunc:
+class ConstantRewardFunc:
+    def __init__(self, r):
+        self.r = r
+
+    def __call__(self, _state: tetris.GameState, _prev_stats: tetris.Statistics,
+                 _stats: tetris.Statistics) -> float:
+        return self.r
+
+
+class DensityRewardFunc:
     def __init__(self, decay=1):
         self.decay = decay
 
@@ -100,7 +109,8 @@ def reward_func_factory(*func_amp_list: List[Tuple[RewardFunc, float]]):
 
 
 default_reward_func = reward_func_factory(
-    (BaseRewardFunc(), 1),
+    # (DensityRewardFunc(), 1),
+    (ConstantRewardFunc(1), 1),
     (BonusRewardFunc(), 5),
 )
 
