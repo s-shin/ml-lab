@@ -97,7 +97,7 @@ class BonusRewardFunc:
         return r
 
 
-def reward_func_factory(*func_amp_list: List[Tuple[RewardFunc, float]]):
+def reward_func_factory(*func_amp_list: Tuple[RewardFunc, float]):
     def reward_func(state: tetris.GameState, prev_stats: tetris.Statistics,
                     stats: tetris.Statistics) -> float:
         r = 0

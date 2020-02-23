@@ -49,9 +49,10 @@ class Args(NamedTuple):
     num_episodes: int
     max_steps: int
     discount_rate: float
+    base_reward_type: str
 
 
-def run(args: Optional[List[str]] = None):
+def run(arg_list: Optional[List[str]] = None):
     now_str = time.strftime('%Y%m%d_%H%M%S')
 
     parser = argparse.ArgumentParser(prog='PROG')
@@ -65,8 +66,10 @@ def run(args: Optional[List[str]] = None):
     parser.add_argument('--num_episodes', default=5, type=int)
     parser.add_argument('--max_steps', default=500, type=int)
     parser.add_argument('--discount_rate', default=0.99, type=float)
+    parser.add_argument('--base_reward_type', default='density',
+                        choices=['density', 'constant'])
 
-    args = parser.parse_args(args)  # type: Args
+    args = parser.parse_args(arg_list)  # type: Args
 
     model_file = args.model
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
@@ -96,6 +99,19 @@ def run(args: Optional[List[str]] = None):
         optimizer = optim.Adam(model.parameters())
     elif args.optimizer == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters())
+    else:
+        raise Exception('invalid argument: {}'.format(args.optimizer))
+
+    if args.base_reward_type == 'density':
+        base_reward_func = agent.DensityRewardFunc()
+    elif args.base_reward_type == 'constant':
+        base_reward_func = agent.ConstantRewardFunc(1)
+    else:
+        raise Exception('invalid argument: {}'.format(args.optimizer))
+    reward_func = agent.reward_func_factory(
+        (base_reward_func, 1),
+        (agent.BonusRewardFunc(), 5),
+    )
 
     results: List[agent.StepResult] = []
 
@@ -108,7 +124,7 @@ def run(args: Optional[List[str]] = None):
 
         num_steps, score, game = agent.run_steps(
             model, device, max_steps=args.max_steps,
-            step_result_cb=on_step_result)
+            reward_func=reward_func, step_result_cb=on_step_result)
 
         logger.info('steps: {}, score: {:.3f}, game:\n{}'.format(
             num_steps, score, game))
