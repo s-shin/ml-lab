@@ -2,7 +2,7 @@ import argparse
 import os
 import json
 import logging
-from typing import List, Optional, NamedTuple
+from typing import List, Optional, NamedTuple, Dict, Any
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -27,7 +27,7 @@ TB_LOG_DIR = 'tb_log'
 
 DEFAULT_OPTIMIZER = 'adam'
 DEFAULT_MAX_STEPS = 100
-DEFAULT_LEARNING_INTERVAL = 5
+DEFAULT_LEARNING_INTERVAL = 7
 DEFAULT_BASE_REWARD_TYPE = 'density'
 DEFAULT_REWARD_DISCOUNT_RATE = 0.99
 
@@ -42,6 +42,16 @@ class Hyperparams(NamedTuple):
 
 class RunState(NamedTuple):
     last_episode_id: int = 0
+
+
+def load_json(file: str) -> Dict[str, Any]:
+    with open(file, 'r') as fp:
+        return json.load(fp)
+
+
+def save_json(file: str, data: Dict[str, Any]):
+    with open(file, 'w') as fp:
+        json.dump(data, fp)
 
 
 # --- init ---
@@ -68,17 +78,15 @@ def init(args: InitArgs):
                 exit(1)
 
     logger.info('Initialize %s.', hyperparams_file)
-    with open(hyperparams_file, 'w') as fp:
-        hyperparams = Hyperparams(
-            args.optimizer, args.max_steps, args.learning_interval,
-            args.base_reward_type, args.reward_discount_rate,
-        )
-        json.dump(hyperparams._asdict(), fp)
+    hyperparams = Hyperparams(
+        args.optimizer, args.max_steps, args.learning_interval,
+        args.base_reward_type, args.reward_discount_rate,
+    )
+    save_json(hyperparams_file, hyperparams._asdict())
 
     logger.info('Initialize %s.', run_state_file)
-    with open(run_state_file, 'w') as fp:
-        run_state = RunState()
-        json.dump(run_state._asdict(), fp)
+    run_state = RunState()
+    save_json(run_state_file, run_state._asdict())
 
     logger.info('Done!')
 
@@ -127,13 +135,8 @@ def run(args: RunArgs):
     model_file = os.path.join(args.project_dir, MODEL_FILE)
     tb_log_dir = os.path.join(args.project_dir, TB_LOG_DIR)
 
-    with open(hyperparams_file, 'r') as fp:
-        data = json.load(fp)
-        hyperparams = Hyperparams(**data)
-
-    with open(run_state_file, 'r') as fp:
-        data = json.load(fp)
-        run_state = RunState(**data)
+    hyperparams = Hyperparams(**load_json(hyperparams_file))
+    run_state = RunState(**load_json(run_state_file))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     summary_writer = SummaryWriter(log_dir=tb_log_dir)
@@ -202,6 +205,8 @@ def run(args: RunArgs):
         learn()
         torch.save(model.state_dict(), model_file)
         logger.info('model sate was saved to {}'.format(model_file))
+        run_state = run_state._replace(last_episode_id=episode_id)
+        save_json(run_state_file, run_state._asdict())
 
     logger.info('Finished!')
 
