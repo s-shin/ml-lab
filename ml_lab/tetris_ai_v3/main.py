@@ -41,7 +41,8 @@ class Hyperparams(NamedTuple):
 
 
 class RunState(NamedTuple):
-    last_episode_id: int = 0
+    last_episode_id: int = -1
+    num_learning: int = 0
 
 
 def load_json(file: str) -> Dict[str, Any]:
@@ -166,20 +167,21 @@ def run(args: RunArgs):
     )
 
     results: List[agent.StepResult] = []
+    losses: List[float] = []
 
-    episode_id = run_state.last_episode_id + 1
-    for i in range(args.num_episodes):
-        logger.info('Episode#{} ({})'.format(episode_id, i))
+    episode_id = run_state.last_episode_id
+    for ep_i in range(args.num_episodes):
+        episode_id += 1
+        logger.info('Episode#{} ({})'.format(episode_id, ep_i))
 
         def learn():
             nonlocal results
-            if len(results) <= 2:
+            if len(results) <= 1:
                 results = []  # discard
                 return
             logger.info('Learning...')
             loss = calc_loss(results, gamma=hyperparams.reward_discount_rate)
-            if summary_writer is not None:
-                summary_writer.add_scalar('Episode/Loss', loss.item(), episode_id)
+            losses.append(loss.item())
             logger.info('loss: {}'.format(loss.item()))
             optimizer.zero_grad()
             loss.backward()
@@ -196,19 +198,28 @@ def run(args: RunArgs):
             model, device, max_steps=hyperparams.max_steps,
             reward_func=reward_func, step_result_cb=on_step_result)
 
-        learn()
+        learn()  # `results` will be cleared
 
         logger.info('steps: {}, score: {:.3f}, game:\n{}'.format(
             num_steps, score, game))
         if summary_writer is not None:
             summary_writer.add_scalar('Episode/Steps', num_steps, episode_id)
             summary_writer.add_scalar('Episode/Score', score, episode_id)
+            summary_writer.add_scalar('Episode/Losses', np.mean(losses), episode_id)
+            for i, loss in enumerate(losses):
+                summary_writer.add_scalar('Losses', loss,
+                                          run_state.num_learning + i)
 
         torch.save(model.state_dict(), model_file)
         logger.info('model sate was saved to {}'.format(model_file))
-        run_state = run_state._replace(last_episode_id=episode_id)
+
+        run_state = run_state._replace(
+            last_episode_id=episode_id,
+            num_learning=run_state.num_learning + len(losses))
         save_json(run_state_file, run_state._asdict())
-        logger.debug('{} was updated.'.format(run_state_file))
+        logger.info('{} was updated.'.format(run_state_file))
+
+        losses = []
 
     logger.info('Finished!')
 
