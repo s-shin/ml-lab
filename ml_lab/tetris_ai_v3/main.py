@@ -122,6 +122,8 @@ def calc_loss(results: List[agent.StepResult], gamma=0.99):
     policy_losses = torch.stack(policy_losses)
     value_losses = torch.stack(value_losses)
     loss = policy_losses.sum() + value_losses.sum()
+    if torch.isnan(loss):
+        pass  # for breakpoint
     return loss
 
 
@@ -181,6 +183,11 @@ def run(args: RunArgs):
                 return
             logger.info('Learning...')
             loss = calc_loss(results, gamma=hyperparams.reward_discount_rate)
+            if torch.isnan(loss):
+                # FIXME
+                logger.warning('loss becomes NaN. ignored.')
+                results = []
+                return
             losses.append(loss.item())
             logger.info('loss: {}'.format(loss.item()))
             optimizer.zero_grad()
