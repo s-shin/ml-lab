@@ -32,12 +32,14 @@ class StepResult:
     action_log_prob: torch.Tensor
     state_value: torch.Tensor
     reward: float
+    is_game_over: bool
 
     def __init__(self, action_log_prob: torch.Tensor, state_value: torch.Tensor,
-                 reward: float):
+                 reward: float, is_game_over: bool):
         self.action_log_prob = action_log_prob
         self.state_value = state_value
         self.reward = reward
+        self.is_game_over = is_game_over
 
 
 StepResultCallback = Callable[[int, StepResult, int], bool]
@@ -147,6 +149,7 @@ def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
             action_log_prob,
             state_value,
             reward,
+            game.state.is_game_over,
         )
 
         if not step_result_cb(step_id, result, total_score):
