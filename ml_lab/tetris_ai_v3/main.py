@@ -196,17 +196,19 @@ def run(args: RunArgs):
             model, device, max_steps=hyperparams.max_steps,
             reward_func=reward_func, step_result_cb=on_step_result)
 
+        learn()
+
         logger.info('steps: {}, score: {:.3f}, game:\n{}'.format(
             num_steps, score, game))
         if summary_writer is not None:
             summary_writer.add_scalar('Episode/Steps', num_steps, episode_id)
             summary_writer.add_scalar('Episode/Score', score, episode_id)
 
-        learn()
         torch.save(model.state_dict(), model_file)
         logger.info('model sate was saved to {}'.format(model_file))
         run_state = run_state._replace(last_episode_id=episode_id)
         save_json(run_state_file, run_state._asdict())
+        logger.debug('{} was updated.'.format(run_state_file))
 
     logger.info('Finished!')
 
