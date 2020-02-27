@@ -49,7 +49,6 @@ class ResidualLayer(nn.Module):
         self.norm1 = nn.BatchNorm2d(K)
         self.conv2 = nn.Conv2d(K, K, kernel_size=3, padding=1, bias=False)
         self.norm2 = nn.BatchNorm2d(K)
-        self.conv3 = nn.Conv2d(K, K, kernel_size=3, padding=1, bias=False)
 
     def forward(self, input: torch.Tensor):
         x = F.relu(self.norm1(self.conv1(input)))

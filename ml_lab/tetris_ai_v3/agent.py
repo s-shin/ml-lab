@@ -54,7 +54,7 @@ RewardFunc = Callable[
 
 
 class ConstantRewardFunc:
-    def __init__(self, r):
+    def __init__(self, r=1.0):
         self.r = r
 
     def __call__(self, _state: tetris.GameState, _prev_stats: tetris.Statistics,
@@ -111,16 +111,16 @@ def reward_func_factory(*func_amp_list: Tuple[RewardFunc, float]):
 
 
 default_reward_func = reward_func_factory(
-    # (DensityRewardFunc(), 1),
+    (DensityRewardFunc(), 1),
     (ConstantRewardFunc(1), 1),
     (BonusRewardFunc(), 5),
 )
 
 
-def run_steps(model: M.TetrisModel, device: torch.device, max_steps=100,
-              rand=random.Random(),
-              step_result_cb=default_step_result_cb,
-              reward_func=default_reward_func) \
+def play(model: M.TetrisModel, device: torch.device, max_steps=100,
+         rand=random.Random(),
+         step_result_cb=default_step_result_cb,
+         reward_func=default_reward_func) \
         -> Tuple[int, float, tetris.Game]:
     game = tetris.Game.default(rand)
     total_score = 0

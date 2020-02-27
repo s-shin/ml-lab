@@ -26,17 +26,23 @@ MODEL_FILE = 'model.pt'
 TB_LOG_DIR = 'tb_log'
 
 DEFAULT_OPTIMIZER = 'adam'
+DEFAULT_LEARNING_RATE = 0.001
 DEFAULT_MAX_STEPS = 100
 DEFAULT_LEARNING_INTERVAL = 7
-DEFAULT_BASE_REWARD_TYPE = 'density'
+DEFAULT_CONSTANT_REWARD_FACTOR = 1.0
+DEFAULT_DENSITY_REWARD_FACTOR = 1.0
+DEFAULT_BONUS_REWARD_FACTOR = 5.0
 DEFAULT_REWARD_DISCOUNT_RATE = 0.99
 
 
 class Hyperparams(NamedTuple):
     optimizer: str = DEFAULT_OPTIMIZER  # adam or rmsprop
+    learning_rate: float = DEFAULT_LEARNING_RATE
     max_steps: int = DEFAULT_MAX_STEPS
     learning_interval: int = DEFAULT_LEARNING_INTERVAL
-    base_reward_type: str = DEFAULT_BASE_REWARD_TYPE  # density or constant
+    constant_reward_factor: float = DEFAULT_CONSTANT_REWARD_FACTOR
+    density_reward_factor: float = DEFAULT_DENSITY_REWARD_FACTOR
+    bonus_reward_factor: float = DEFAULT_BONUS_REWARD_FACTOR
     reward_discount_rate: float = DEFAULT_REWARD_DISCOUNT_RATE
 
 
@@ -61,9 +67,12 @@ class InitArgs(NamedTuple):
     project_dir: str
     force: bool = False
     optimizer: str = DEFAULT_OPTIMIZER
+    learning_rate: float = DEFAULT_LEARNING_RATE
     max_steps: int = DEFAULT_MAX_STEPS
     learning_interval: int = DEFAULT_LEARNING_INTERVAL
-    base_reward_type: str = DEFAULT_BASE_REWARD_TYPE
+    constant_reward_factor: float = DEFAULT_CONSTANT_REWARD_FACTOR
+    density_reward_factor: float = DEFAULT_DENSITY_REWARD_FACTOR
+    bonus_reward_factor: float = DEFAULT_BONUS_REWARD_FACTOR
     reward_discount_rate: float = DEFAULT_REWARD_DISCOUNT_RATE
 
 
@@ -80,8 +89,10 @@ def init(args: InitArgs):
 
     logger.info('Initialize %s.', hyperparams_file)
     hyperparams = Hyperparams(
-        args.optimizer, args.max_steps, args.learning_interval,
-        args.base_reward_type, args.reward_discount_rate,
+        args.optimizer, args.learning_rate,
+        args.max_steps, args.learning_interval,
+        args.constant_reward_factor, args.density_reward_factor,
+        args.bonus_reward_factor, args.reward_discount_rate,
     )
     save_json(hyperparams_file, hyperparams._asdict())
 
@@ -151,21 +162,18 @@ def run(args: RunArgs):
     model.to(device)
 
     if hyperparams.optimizer == 'adam':
-        optimizer = optim.Adam(model.parameters())
+        optimizer = optim.Adam(model.parameters(),
+                               lr=hyperparams.learning_rate)
     elif hyperparams.optimizer == 'rmsprop':
-        optimizer = optim.RMSprop(model.parameters())
+        optimizer = optim.RMSprop(model.parameters(),
+                                  lr=hyperparams.learning_rate)
     else:
         raise Exception('invalid argument: {}'.format(hyperparams.optimizer))
 
-    if hyperparams.base_reward_type == 'density':
-        base_reward_func = agent.DensityRewardFunc()
-    elif hyperparams.base_reward_type == 'constant':
-        base_reward_func = agent.ConstantRewardFunc(1)
-    else:
-        raise Exception('invalid argument: {}'.format(hyperparams.optimizer))
     reward_func = agent.reward_func_factory(
-        (base_reward_func, 1),
-        (agent.BonusRewardFunc(), 5),
+        (agent.DensityRewardFunc(), hyperparams.density_reward_factor),
+        (agent.ConstantRewardFunc(), hyperparams.constant_reward_factor),
+        (agent.BonusRewardFunc(), hyperparams.bonus_reward_factor),
     )
 
     results: List[agent.StepResult] = []
@@ -201,7 +209,7 @@ def run(args: RunArgs):
                 learn()
             return True
 
-        num_steps, score, game = agent.run_steps(
+        num_steps, score, game = agent.play(
             model, device, max_steps=hyperparams.max_steps,
             reward_func=reward_func, step_result_cb=on_step_result)
 
@@ -245,11 +253,17 @@ def main(arg_list: Optional[List[str]] = None):
     p.add_argument('--force', action='store_true')
     p.add_argument('--optimizer', default=DEFAULT_OPTIMIZER,
                    choices=['adam', 'rmsprop'])
+    p.add_argument('--learning_rate', type=float,
+                   default=DEFAULT_LEARNING_RATE)
     p.add_argument('--max_steps', type=int, default=DEFAULT_MAX_STEPS)
     p.add_argument('--learning_interval', type=int,
                    default=DEFAULT_LEARNING_INTERVAL)
-    p.add_argument('--base_reward_type', default=DEFAULT_BASE_REWARD_TYPE,
-                   choices=['density', 'constant'])
+    p.add_argument('--constant_reward_factor', type=float,
+                   default=DEFAULT_CONSTANT_REWARD_FACTOR)
+    p.add_argument('--density_reward_factor', type=float,
+                   default=DEFAULT_DENSITY_REWARD_FACTOR)
+    p.add_argument('--bonus_reward_factor', type=float,
+                   default=DEFAULT_BONUS_REWARD_FACTOR)
     p.add_argument('--reward_discount_rate', type=float,
                    default=DEFAULT_REWARD_DISCOUNT_RATE)
     p.set_defaults(func=init)
