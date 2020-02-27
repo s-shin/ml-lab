@@ -56,7 +56,7 @@ def save_json(file: str, data: Dict[str, Any]):
 
 # --- init ---
 
-class InitArgs:
+class InitArgs(NamedTuple):
     project_dir: str
     force: bool
     optimizer: str
