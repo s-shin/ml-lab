@@ -63,7 +63,7 @@ class InitArgs(NamedTuple):
     max_steps: int = DEFAULT_MAX_STEPS
     learning_interval: int = DEFAULT_LEARNING_INTERVAL
     base_reward_type: str = DEFAULT_BASE_REWARD_TYPE
-    reward_discount_rate: float DEFAULT_REWARD_DISCOUNT_RATE
+    reward_discount_rate: float = DEFAULT_REWARD_DISCOUNT_RATE
 
 
 def init(args: InitArgs):
